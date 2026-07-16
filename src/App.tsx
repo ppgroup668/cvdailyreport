@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { useState, useCallback, useMemo, Fragment, ChangeEvent, useEffect } from 'react';
+import React, { useState, useCallback, useMemo, Fragment, ChangeEvent, useEffect } from 'react';
 import * as XLSX from 'xlsx';
 import { 
   FileUp, 
@@ -38,6 +38,34 @@ export default function App() {
   const [logoUrl, setLogoUrl] = useState<string | null>(null);
   const [availableTeams, setAvailableTeams] = useState<string[]>([]);
   const [selectedTeams, setSelectedTeams] = useState<string[]>([]);
+  const [colWidths, setColWidths] = useState({
+    manager: 160,
+    name: 200,
+    fyc: 120,
+    case: 100
+  });
+
+  const handleResizeStart = (col: 'manager' | 'name' | 'fyc' | 'case', e: React.MouseEvent) => {
+    e.preventDefault();
+    const startX = e.pageX;
+    const startWidth = colWidths[col];
+    
+    const handleMouseMove = (moveEvent: MouseEvent) => {
+      const deltaX = moveEvent.pageX - startX;
+      setColWidths(prev => ({
+        ...prev,
+        [col]: Math.max(60, startWidth + deltaX)
+      }));
+    };
+    
+    const handleMouseUp = () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+    
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+  };
 
   // 當 headcountFile 改變時，異步讀取並提取所有 unique teams
   useEffect(() => {
@@ -238,17 +266,17 @@ export default function App() {
       /**
        * Sales Production 處理:
        * E 行 (Index 4): Name (HKID)
-       * O 行 (Index 14): FYC
-       * P 行 (Index 15): Case
+       * O 行 (Index 14): Case
+       * P 行 (Index 15): FYC
        */
       const productionMap = new Map<string, { fyc: number; cases: number; manager: string; originalName: string }>();
       productionRows.forEach((row, idx) => {
         if (idx === 0) return;
         const nameRaw = String(row[4] || '').trim();
-        const fycRaw = String(row[14] || '0').replace(/,/g, '');
-        const casesRaw = String(row[15] || '0').replace(/,/g, '');
-        const fyc = Math.round(parseFloat(fycRaw) || 0); // O 行
-        const cases = parseFloat(casesRaw) || 0; // P 行
+        const casesRaw = String(row[14] || '0').replace(/,/g, ''); // O 行
+        const fycRaw = String(row[15] || '0').replace(/,/g, ''); // P 行
+        const fyc = Math.round(parseFloat(fycRaw) || 0); // P 行
+        const cases = parseFloat(casesRaw) || 0; // O 行
         const managerFromProd = String(row[2] || '').trim(); // C 行
 
         // 只要大於等於 0.5 就顯示 (使用者要求: > 0.5 都顯示)
@@ -630,7 +658,7 @@ export default function App() {
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
-              className="space-y-6 max-w-3xl md:max-w-4xl mx-auto"
+              className="space-y-6 max-w-[480px] mx-auto"
             >
               <div className="flex justify-between items-center bg-white border border-slate-200 px-6 py-4 rounded-3xl shadow-sm">
                 <button
@@ -709,71 +737,114 @@ export default function App() {
                     </div>
                   </div>
 
+                  {/* Tip Row */}
+                  <div className="bg-blue-50/50 px-4 py-2 flex items-center gap-2 border-b border-blue-100 text-[11px] text-blue-700">
+                    <span className="flex-shrink-0">💡</span>
+                    <span>字體已放大 2 倍。您可以<b>按住並左右拖曳</b>表頭分隔線來「自助調整欄寬」。</span>
+                  </div>
+
                   {/* Table area */}
-                  <div className="bg-white">
-                    <table className="w-full text-left border-collapse table-auto">
+                  <div className="bg-white overflow-x-auto w-full">
+                    <table 
+                      className="text-left border-collapse table-fixed"
+                      style={{ width: colWidths.manager + colWidths.name + colWidths.fyc + colWidths.case }}
+                    >
+                      <colgroup>
+                        <col style={{ width: colWidths.manager }} />
+                        <col style={{ width: colWidths.name }} />
+                        <col style={{ width: colWidths.fyc }} />
+                        <col style={{ width: colWidths.case }} />
+                      </colgroup>
                       <thead>
-                        <tr className="bg-[#60A5FA] text-white text-base">
-                          <th className="px-3.5 py-1.5 border-r border-[#419CD8] text-sm whitespace-nowrap">Manager</th>
-                          <th className="px-3.5 py-1.5 border-r border-[#419CD8] text-sm whitespace-nowrap">Name (HKID)</th>
-                          <th className="px-3.5 py-1.5 border-r border-[#419CD8] text-center text-sm whitespace-nowrap w-28">FYC</th>
-                          <th className="px-3.5 py-1.5 text-center text-sm whitespace-nowrap w-20">Case</th>
+                        <tr className="bg-[#60A5FA] text-white">
+                          <th className="relative px-2.5 py-3 border-r border-[#419CD8] text-[22px] font-black select-none group">
+                            <div className="truncate pr-2">Manager</div>
+                            <div 
+                              onMouseDown={(e) => handleResizeStart('manager', e)}
+                              className="absolute right-0 top-0 bottom-0 w-2.5 cursor-col-resize hover:bg-[#419CD8]/50 active:bg-blue-600 z-10"
+                              title="左右拖曳調整欄寬"
+                            />
+                          </th>
+                          <th className="relative px-2.5 py-3 border-r border-[#419CD8] text-[22px] font-black select-none group">
+                            <div className="truncate pr-2">Name (HKID)</div>
+                            <div 
+                              onMouseDown={(e) => handleResizeStart('name', e)}
+                              className="absolute right-0 top-0 bottom-0 w-2.5 cursor-col-resize hover:bg-[#419CD8]/50 active:bg-blue-600 z-10"
+                              title="左右拖曳調整欄寬"
+                            />
+                          </th>
+                          <th className="relative px-2.5 py-3 border-r border-[#419CD8] text-center text-[22px] font-black select-none group">
+                            <div className="truncate px-1">FYC</div>
+                            <div 
+                              onMouseDown={(e) => handleResizeStart('fyc', e)}
+                              className="absolute right-0 top-0 bottom-0 w-2.5 cursor-col-resize hover:bg-[#419CD8]/50 active:bg-blue-600 z-10"
+                              title="左右拖曳調整欄寬"
+                            />
+                          </th>
+                          <th className="relative px-2.5 py-3 text-center text-[22px] font-black select-none group">
+                            <div className="truncate px-1">Case</div>
+                            <div 
+                              onMouseDown={(e) => handleResizeStart('case', e)}
+                              className="absolute right-0 top-0 bottom-0 w-2.5 cursor-col-resize hover:bg-[#419CD8]/50 active:bg-blue-600 z-10"
+                              title="左右拖曳調整欄寬"
+                            />
+                          </th>
                         </tr>
                       </thead>
-                      <tbody className="text-xs font-medium">
+                      <tbody className="text-[20px] font-medium">
                         {reportData.map((distGroup) => (
-                          <Fragment key={distGroup.district}>
-                            {/* District Classification Row */}
-                            <tr className="bg-blue-50/70 text-blue-950 border-b border-blue-100 uppercase font-black">
-                              <td colSpan={2} className="px-3.5 py-2.5 border-r border-blue-100">
-                                <div className="flex items-center gap-1.5">
-                                  <span className="text-[#419CD8] text-sm">■</span>
-                                  <span>{distGroup.district}</span>
-                                </div>
-                              </td>
-                              <td className="px-3.5 py-2.5 border-r border-blue-100 text-right font-black text-blue-900">
-                                {distGroup.totalFYC.toLocaleString()}
-                              </td>
-                              <td className="px-3.5 py-2.5 text-right font-black text-blue-900">
-                                {distGroup.totalCases.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 1 })}
-                              </td>
-                            </tr>
+                           <Fragment key={distGroup.district}>
+                             {/* District Classification Row */}
+                             <tr className="bg-blue-50/70 text-blue-950 border-b border-blue-100 uppercase font-black text-[20px]">
+                               <td colSpan={2} className="px-2.5 py-3 border-r border-blue-100 truncate">
+                                 <div className="flex items-center gap-1.5">
+                                   <span className="text-[#419CD8]">■</span>
+                                   <span className="truncate">{distGroup.district}</span>
+                                 </div>
+                               </td>
+                               <td className="px-2.5 py-3 border-r border-blue-100 text-right font-black text-blue-900 truncate">
+                                 {distGroup.totalFYC.toLocaleString()}
+                               </td>
+                               <td className="px-2.5 py-3 text-right font-black text-blue-900 truncate">
+                                 {distGroup.totalCases.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 })}
+                               </td>
+                             </tr>
 
-                            {/* Manager Groups */}
-                            {distGroup.managerGroups.map((group) => (
-                              <Fragment key={group.manager}>
-                                {group.records.map((record, idx) => (
-                                  <tr key={`${record.name}-${idx}`} className="border-b border-gray-100 hover:bg-sky-50 transition-colors uppercase whitespace-nowrap">
-                                    <td className="px-3.5 py-1.5 border-r border-gray-100 font-bold" title={group.manager}>
-                                      {idx === 0 ? `- ${group.manager}` : ""}
-                                    </td>
-                                    <td className="px-3.5 py-1.5 border-r border-gray-100" title={record.name}>
-                                      {record.name}
-                                    </td>
-                                    <td className="px-3.5 py-1.5 border-r border-gray-100 text-right font-semibold">
-                                      {record.fyc.toLocaleString()}
-                                    </td>
-                                    <td className="px-3.5 py-1.5 text-right">
-                                      {record.cases}
-                                    </td>
-                                  </tr>
-                                ))}
-                              </Fragment>
-                            ))}
-                          </Fragment>
-                        ))}
-                      </tbody>
-                      <tfoot className="font-black text-base bg-white border-t border-gray-300">
-                         <tr>
-                           <td colSpan={2} className="px-3.5 py-2 border-r border-gray-100"></td>
-                           <td className="px-3.5 py-2 border-r border-gray-100 text-right underline decoration-double underline-offset-4">
-                             {grandTotals.fyc.toLocaleString()}
-                           </td>
-                           <td className="px-3.5 py-2 text-right underline decoration-double underline-offset-4">
-                             {grandTotals.cases.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 1 })}
-                           </td>
-                         </tr>
-                      </tfoot>
+                             {/* Manager Groups */}
+                             {distGroup.managerGroups.map((group) => (
+                               <Fragment key={group.manager}>
+                                 {group.records.map((record, idx) => (
+                                   <tr key={`${record.name}-${idx}`} className="border-b border-gray-100 hover:bg-sky-50 transition-colors uppercase whitespace-nowrap text-[20px]">
+                                     <td className="px-2.5 py-2.5 border-r border-gray-100 font-bold truncate" title={group.manager}>
+                                       {idx === 0 ? `- ${group.manager}` : ""}
+                                     </td>
+                                     <td className="px-2.5 py-2.5 border-r border-gray-100 truncate" title={record.name}>
+                                       {record.name}
+                                     </td>
+                                     <td className="px-2.5 py-2.5 border-r border-gray-100 text-right font-semibold truncate">
+                                       {record.fyc.toLocaleString()}
+                                     </td>
+                                     <td className="px-2.5 py-2.5 text-right truncate">
+                                       {record.cases.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 })}
+                                     </td>
+                                   </tr>
+                                 ))}
+                               </Fragment>
+                             ))}
+                           </Fragment>
+                         ))}
+                       </tbody>
+                       <tfoot className="font-black text-[20px] bg-white border-t-2 border-gray-300">
+                          <tr className="bg-slate-50">
+                            <td colSpan={2} className="px-2.5 py-3 border-r border-gray-100 text-right text-slate-500 font-semibold">TOTAL</td>
+                            <td className="px-2.5 py-3 border-r border-gray-100 text-right underline decoration-double underline-offset-4 truncate text-blue-950 font-black">
+                              {grandTotals.fyc.toLocaleString()}
+                            </td>
+                            <td className="px-2.5 py-3 text-right underline decoration-double underline-offset-4 truncate text-blue-950 font-black">
+                              {grandTotals.cases.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 })}
+                            </td>
+                          </tr>
+                       </tfoot>
                     </table>
                   </div>
                 </div>
