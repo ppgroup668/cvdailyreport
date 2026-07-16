@@ -23,13 +23,14 @@ import {
   HeadcountRow, 
   ProductionRow, 
   SalesRecord, 
-  ManagerGroup 
+  ManagerGroup,
+  DistrictGroup
 } from './types';
 
 export default function App() {
   const [headcountFile, setHeadcountFile] = useState<File | null>(null);
   const [productionFile, setProductionFile] = useState<File | null>(null);
-  const [reportData, setReportData] = useState<ManagerGroup[] | null>(null);
+  const [reportData, setReportData] = useState<DistrictGroup[] | null>(null);
   const [reportDate, setReportDate] = useState<string>(new Date().toISOString().split('T')[0]);
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -157,7 +158,7 @@ export default function App() {
        * D 行 (Index 3): Name (HKID)
        */
       const normalizeName = (name: string) => name.replace(/[^a-zA-Z0-9\u4e00-\u9fa5]/g, '').toUpperCase();
-      const headcountMap = new Map<string, { manager: string; originalName: string }>();
+      const headcountMap = new Map<string, { manager: string; originalName: string; district: string }>();
       const nameToChiMap = new Map<string, string>();
       const personTeamMap = new Map<string, string>();
       
@@ -186,7 +187,11 @@ export default function App() {
           : colBRaw.includes('CALVIN WONG');
 
         if (nameRaw && isMatchedTeam) {
-          headcountMap.set(normalizeName(nameRaw), { manager: managerRaw, originalName: nameRaw });
+          headcountMap.set(normalizeName(nameRaw), { 
+            manager: managerRaw, 
+            originalName: nameRaw, 
+            district: colBRaw 
+          });
         }
       });
 
@@ -286,31 +291,60 @@ export default function App() {
       });
 
       const mergedRecords: SalesRecord[] = [];
-      productionMap.forEach((data) => {
+      productionMap.forEach((data, key) => {
         if (data.manager && data.manager.trim() !== "" && data.manager !== "Unassigned") {
+          const hc = headcountMap.get(key);
+          const district = hc?.district || "";
           mergedRecords.push({
             name: data.originalName,
             manager: data.manager,
             fyc: data.fyc,
-            cases: data.cases
+            cases: data.cases,
+            district
           });
         }
       });
 
-      const groups: { [key: string]: SalesRecord[] } = {};
+      // 先依 District 分類
+      const districtMap = new Map<string, SalesRecord[]>();
       mergedRecords.forEach(record => {
-        if (!groups[record.manager]) groups[record.manager] = [];
-        groups[record.manager].push(record);
+        const dist = record.district || "OTHER";
+        if (!districtMap.has(dist)) {
+          districtMap.set(dist, []);
+        }
+        districtMap.get(dist)!.push(record);
       });
 
-      const processedGroups: ManagerGroup[] = Object.entries(groups).map(([manager, records]) => ({
-        manager,
-        records: records.sort((a, b) => a.name.localeCompare(b.name)),
-        totalFYC: records.reduce((sum, r) => sum + r.fyc, 0),
-        totalCases: records.reduce((sum, r) => sum + r.cases, 0)
-      })).sort((a, b) => b.totalFYC - a.totalFYC);
+      const processedDistricts: DistrictGroup[] = [];
+      districtMap.forEach((records, distName) => {
+        const groups: { [key: string]: SalesRecord[] } = {};
+        records.forEach(record => {
+          if (!groups[record.manager]) groups[record.manager] = [];
+          groups[record.manager].push(record);
+        });
 
-      setReportData(processedGroups);
+        const managerGroups: ManagerGroup[] = Object.entries(groups).map(([manager, recs]) => ({
+          manager,
+          records: recs.sort((a, b) => a.name.localeCompare(b.name)),
+          totalFYC: recs.reduce((sum, r) => sum + r.fyc, 0),
+          totalCases: recs.reduce((sum, r) => sum + r.cases, 0)
+        })).sort((a, b) => b.totalFYC - a.totalFYC);
+
+        const totalFYC = managerGroups.reduce((sum, mg) => sum + mg.totalFYC, 0);
+        const totalCases = managerGroups.reduce((sum, mg) => sum + mg.totalCases, 0);
+
+        processedDistricts.push({
+          district: distName,
+          managerGroups,
+          totalFYC,
+          totalCases
+        });
+      });
+
+      // 按 District 總 FYC 排序
+      processedDistricts.sort((a, b) => b.totalFYC - a.totalFYC);
+
+      setReportData(processedDistricts);
       setActiveView('reports');
       // 自動滾動到頂部
       setTimeout(() => {
@@ -326,9 +360,9 @@ export default function App() {
 
   const grandTotals = useMemo(() => {
     if (!reportData) return { fyc: 0, cases: 0 };
-    return reportData.reduce((acc, group) => ({
-      fyc: acc.fyc + group.totalFYC,
-      cases: acc.cases + group.totalCases
+    return reportData.reduce((acc, distGroup) => ({
+      fyc: acc.fyc + distGroup.totalFYC,
+      cases: acc.cases + distGroup.totalCases
     }), { fyc: 0, cases: 0 });
   }, [reportData]);
 
@@ -596,7 +630,7 @@ export default function App() {
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
-              className="space-y-6 max-w-xl mx-auto"
+              className="space-y-6 max-w-3xl md:max-w-4xl mx-auto"
             >
               <div className="flex justify-between items-center bg-white border border-slate-200 px-6 py-4 rounded-3xl shadow-sm">
                 <button
@@ -676,45 +710,66 @@ export default function App() {
                   </div>
 
                   {/* Table area */}
-                  <div className="bg-white overflow-x-auto">
-                    <table className="w-full text-left border-collapse table-fixed">
+                  <div className="bg-white">
+                    <table className="w-full text-left border-collapse table-auto">
                       <thead>
                         <tr className="bg-[#60A5FA] text-white text-base">
-                          <th className="px-2.5 py-1 border-r border-[#419CD8] w-[140px] text-sm">Manager</th>
-                          <th className="px-2.5 py-1 border-r border-[#419CD8] w-[180px] text-sm">Name (HKID)</th>
-                          <th className="px-2.5 py-1 border-r border-[#419CD8] text-center w-[90px] text-sm">FYC</th>
-                          <th className="px-2.5 py-1 text-center w-[60px] text-sm">Case</th>
+                          <th className="px-3.5 py-1.5 border-r border-[#419CD8] text-sm whitespace-nowrap">Manager</th>
+                          <th className="px-3.5 py-1.5 border-r border-[#419CD8] text-sm whitespace-nowrap">Name (HKID)</th>
+                          <th className="px-3.5 py-1.5 border-r border-[#419CD8] text-center text-sm whitespace-nowrap w-28">FYC</th>
+                          <th className="px-3.5 py-1.5 text-center text-sm whitespace-nowrap w-20">Case</th>
                         </tr>
                       </thead>
                       <tbody className="text-xs font-medium">
-                        {reportData.map((group) => (
-                          <Fragment key={group.manager}>
-                            {group.records.map((record, idx) => (
-                              <tr key={`${record.name}-${idx}`} className="border-b border-gray-100 hover:bg-sky-50 transition-colors uppercase">
-                                <td className="px-2.5 py-1 border-r border-gray-100 font-bold truncate w-[140px]" title={group.manager}>
-                                  {idx === 0 ? `- ${group.manager}` : ""}
-                                </td>
-                                <td className="px-2.5 py-1 border-r border-gray-100 truncate w-[180px]" title={record.name}>
-                                  {record.name}
-                                </td>
-                                <td className="px-2.5 py-1 border-r border-gray-100 text-right font-semibold w-[90px]">
-                                  {record.fyc.toLocaleString()}
-                                </td>
-                                <td className="px-2.5 py-1 text-right w-[60px]">
-                                  {record.cases}
-                                </td>
-                              </tr>
+                        {reportData.map((distGroup) => (
+                          <Fragment key={distGroup.district}>
+                            {/* District Classification Row */}
+                            <tr className="bg-blue-50/70 text-blue-950 border-b border-blue-100 uppercase font-black">
+                              <td colSpan={2} className="px-3.5 py-2.5 border-r border-blue-100">
+                                <div className="flex items-center gap-1.5">
+                                  <span className="text-[#419CD8] text-sm">■</span>
+                                  <span>{distGroup.district}</span>
+                                </div>
+                              </td>
+                              <td className="px-3.5 py-2.5 border-r border-blue-100 text-right font-black text-blue-900">
+                                {distGroup.totalFYC.toLocaleString()}
+                              </td>
+                              <td className="px-3.5 py-2.5 text-right font-black text-blue-900">
+                                {distGroup.totalCases.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 1 })}
+                              </td>
+                            </tr>
+
+                            {/* Manager Groups */}
+                            {distGroup.managerGroups.map((group) => (
+                              <Fragment key={group.manager}>
+                                {group.records.map((record, idx) => (
+                                  <tr key={`${record.name}-${idx}`} className="border-b border-gray-100 hover:bg-sky-50 transition-colors uppercase whitespace-nowrap">
+                                    <td className="px-3.5 py-1.5 border-r border-gray-100 font-bold" title={group.manager}>
+                                      {idx === 0 ? `- ${group.manager}` : ""}
+                                    </td>
+                                    <td className="px-3.5 py-1.5 border-r border-gray-100" title={record.name}>
+                                      {record.name}
+                                    </td>
+                                    <td className="px-3.5 py-1.5 border-r border-gray-100 text-right font-semibold">
+                                      {record.fyc.toLocaleString()}
+                                    </td>
+                                    <td className="px-3.5 py-1.5 text-right">
+                                      {record.cases}
+                                    </td>
+                                  </tr>
+                                ))}
+                              </Fragment>
                             ))}
                           </Fragment>
                         ))}
                       </tbody>
                       <tfoot className="font-black text-base bg-white border-t border-gray-300">
                          <tr>
-                           <td colSpan={2} className="px-2.5 py-1 border-r border-gray-100"></td>
-                           <td className="px-2.5 py-1 border-r border-gray-100 text-right underline decoration-double underline-offset-4">
+                           <td colSpan={2} className="px-3.5 py-2 border-r border-gray-100"></td>
+                           <td className="px-3.5 py-2 border-r border-gray-100 text-right underline decoration-double underline-offset-4">
                              {grandTotals.fyc.toLocaleString()}
                            </td>
-                           <td className="px-2.5 py-1 text-right underline decoration-double underline-offset-4">
+                           <td className="px-3.5 py-2 text-right underline decoration-double underline-offset-4">
                              {grandTotals.cases.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 1 })}
                            </td>
                          </tr>

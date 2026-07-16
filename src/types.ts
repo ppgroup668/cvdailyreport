@@ -17,6 +17,7 @@ export interface SalesRecord {
   hkid?: string;
   fyc: number;
   cases: number;
+  district?: string;
 }
 
 export interface ManagerGroup {
@@ -25,3 +26,11 @@ export interface ManagerGroup {
   totalFYC: number;
   totalCases: number;
 }
+
+export interface DistrictGroup {
+  district: string;
+  managerGroups: ManagerGroup[];
+  totalFYC: number;
+  totalCases: number;
+}
+
