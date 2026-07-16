@@ -36,13 +36,13 @@ export default function App() {
   const [activeView, setActiveView] = useState<'dashboard' | 'reports'>('dashboard');
   const [logoUrl, setLogoUrl] = useState<string | null>(null);
   const [availableTeams, setAvailableTeams] = useState<string[]>([]);
-  const [selectedTeam, setSelectedTeam] = useState<string>('');
+  const [selectedTeams, setSelectedTeams] = useState<string[]>([]);
 
   // 當 headcountFile 改變時，異步讀取並提取所有 unique teams
   useEffect(() => {
     if (!headcountFile) {
       setAvailableTeams([]);
-      setSelectedTeam('');
+      setSelectedTeams([]);
       return;
     }
 
@@ -72,9 +72,9 @@ export default function App() {
             // 尋找包含 "CALVIN WONG" 的 Team 作為預設選取，若無則選第一個
             const calvinTeam = sortedTeams.find(t => t.includes('CALVIN WONG'));
             if (calvinTeam) {
-              setSelectedTeam(calvinTeam);
+              setSelectedTeams([calvinTeam]);
             } else if (sortedTeams.length > 0) {
-              setSelectedTeam(sortedTeams[0]);
+              setSelectedTeams([sortedTeams[0]]);
             }
           } catch (err) {
             console.error("Error reading teams from headcount file:", err);
@@ -180,9 +180,9 @@ export default function App() {
           personTeamMap.set(normalizeName(chineseNameRaw), colBRaw);
         }
 
-        // 篩選 B 行是否等於已選擇的團隊 (Team)
-        const isMatchedTeam = selectedTeam 
-          ? colBRaw === selectedTeam.toUpperCase()
+        // 篩選 B 行是否屬於已選擇的團隊 (Team)
+        const isMatchedTeam = selectedTeams && selectedTeams.length > 0
+          ? selectedTeams.map(t => t.toUpperCase()).includes(colBRaw)
           : colBRaw.includes('CALVIN WONG');
 
         if (nameRaw && isMatchedTeam) {
@@ -257,10 +257,18 @@ export default function App() {
             const managerInfo = findManagerInfo(managerFromProd);
 
             // 1. MATCH 不到 MANAGER 名字，要隱藏
-            // 2. 經理必須屬於當前選擇的團隊，否則不應該出現在該團隊的報表
-            const targetTeam = (selectedTeam || "CALVIN WONG").toUpperCase();
+            // 2. 經理必須屬於已選擇的團隊之一，否則不應該出現在該團隊的報表
+            let isManagerInSelectedTeams = false;
+            if (managerInfo) {
+              const managerTeamNorm = managerInfo.team.toUpperCase();
+              if (selectedTeams && selectedTeams.length > 0) {
+                isManagerInSelectedTeams = selectedTeams.map(t => t.toUpperCase()).includes(managerTeamNorm);
+              } else {
+                isManagerInSelectedTeams = managerTeamNorm.includes('CALVIN WONG');
+              }
+            }
             
-            if (managerInfo && (managerInfo.team === targetTeam || managerInfo.team.includes(targetTeam))) {
+            if (managerInfo && isManagerInSelectedTeams) {
               const m = managerInfo.chineseName || managerFromProd;
               const originalName = headcountMap.get(key)?.originalName || nameRaw;
               
@@ -314,7 +322,7 @@ export default function App() {
     } finally {
       setIsProcessing(false);
     }
-  }, [headcountFile, productionFile, selectedTeam]);
+  }, [headcountFile, productionFile, selectedTeams]);
 
   const grandTotals = useMemo(() => {
     if (!reportData) return { fyc: 0, cases: 0 };
@@ -459,33 +467,92 @@ export default function App() {
               <motion.div 
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
-                className="mt-8 p-6 bg-blue-50/40 rounded-2xl border border-blue-100 max-w-xl mx-auto shadow-sm"
+                className="mt-8 p-6 bg-blue-50/40 rounded-2xl border border-blue-100 max-w-xl mx-auto shadow-sm animate-fade-in"
               >
-                <label className="block text-sm font-extrabold text-slate-700 mb-2 flex items-center gap-2">
-                  <Users className="w-4 h-4 text-[#419CD8]" />
-                  選擇要生成報表的團隊 (District / Team)
-                </label>
-                <div className="relative">
-                  <select
-                    value={selectedTeam}
-                    onChange={(e) => {
-                      setSelectedTeam(e.target.value);
-                      setReportData(null); // 當更換團隊時，清除舊的報告
-                    }}
-                    className="w-full bg-white border border-slate-200 rounded-xl px-4 py-3 text-sm font-semibold text-slate-800 shadow-sm focus:border-[#419CD8] focus:ring-1 focus:ring-[#419CD8] transition-all outline-none appearance-none cursor-pointer"
-                  >
-                    {availableTeams.map((team) => (
-                      <option key={team} value={team}>
-                        {team}
-                      </option>
-                    ))}
-                  </select>
-                  <div className="absolute inset-y-0 right-4 flex items-center pointer-events-none text-slate-400 font-bold text-[10px]">
-                    ▼
-                  </div>
+                <div className="flex items-center justify-between mb-4">
+                  <label className="text-sm font-extrabold text-slate-700 flex items-center gap-2">
+                    <Users className="w-4 h-4 text-[#419CD8]" />
+                    選擇要生成報表的團隊 (District / Team)
+                  </label>
+                  <span className="text-xs bg-blue-100/80 text-[#419CD8] font-black px-2.5 py-1 rounded-full shadow-sm">
+                    已選擇 {selectedTeams.length} / {availableTeams.length} 個
+                  </span>
                 </div>
-                <p className="text-[11px] text-slate-500 mt-2 leading-relaxed">
-                  系統已自動讀取 Headcount 檔案 B 行的 <b>District</b>。預設已為您選中包含 <b>CALVIN WONG</b> 的團隊。若想生成其他團隊的報告，可在上方下拉選單中自行切換。
+
+                {/* Quick actions */}
+                <div className="flex flex-wrap gap-2 mb-4">
+                  <button
+                    onClick={() => {
+                      setSelectedTeams([...availableTeams]);
+                      setReportData(null);
+                    }}
+                    type="button"
+                    className="text-xs font-bold text-[#419CD8] bg-white hover:bg-blue-50 border border-blue-200 px-3 py-1.5 rounded-lg shadow-sm transition-all cursor-pointer"
+                  >
+                    選擇所有團隊 (All Teams)
+                  </button>
+                  <button
+                    onClick={() => {
+                      const calvinTeam = availableTeams.find(t => t.includes('CALVIN WONG'));
+                      if (calvinTeam) {
+                        setSelectedTeams([calvinTeam]);
+                      } else {
+                        setSelectedTeams([]);
+                      }
+                      setReportData(null);
+                    }}
+                    type="button"
+                    className="text-xs font-bold text-[#419CD8] bg-white hover:bg-blue-50 border border-blue-200 px-3 py-1.5 rounded-lg shadow-sm transition-all cursor-pointer"
+                  >
+                    只選 CALVIN WONG
+                  </button>
+                  <button
+                    onClick={() => {
+                      setSelectedTeams([]);
+                      setReportData(null);
+                    }}
+                    type="button"
+                    className="text-xs font-bold text-slate-500 bg-white hover:bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-lg shadow-sm transition-all cursor-pointer"
+                  >
+                    清除選擇
+                  </button>
+                </div>
+
+                {/* Scrollable list of checkboxes */}
+                <div className="max-h-48 overflow-y-auto border border-slate-200 rounded-xl bg-white p-2.5 space-y-1.5 shadow-inner">
+                  {availableTeams.map((team) => {
+                    const isChecked = selectedTeams.includes(team);
+                    return (
+                      <label 
+                        key={team} 
+                        className={cn(
+                          "flex items-center gap-3 px-3 py-1.5 rounded-lg cursor-pointer transition-colors text-xs font-bold select-none",
+                          isChecked 
+                            ? "bg-blue-50/70 text-slate-800 border border-blue-100" 
+                            : "hover:bg-slate-50 text-slate-600 border border-transparent"
+                        )}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={isChecked}
+                          onChange={() => {
+                            if (isChecked) {
+                              setSelectedTeams(selectedTeams.filter(t => t !== team));
+                            } else {
+                              setSelectedTeams([...selectedTeams, team]);
+                            }
+                            setReportData(null); // 當更換團隊時，清除舊的報告
+                          }}
+                          className="w-4 h-4 rounded text-[#419CD8] border-slate-300 focus:ring-[#419CD8] cursor-pointer"
+                        />
+                        <span className="flex-1 truncate">{team}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+
+                <p className="text-[11px] text-slate-500 mt-3 leading-relaxed">
+                  系統已自動讀取 Headcount 檔案 B 行的 <b>District</b>。您可以剔選多個團隊以合併生成報表，或點擊「選擇所有團隊」一次生成。
                 </p>
               </motion.div>
             )}
@@ -529,7 +596,7 @@ export default function App() {
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
-              className="space-y-6"
+              className="space-y-6 max-w-xl mx-auto"
             >
               <div className="flex justify-between items-center bg-white border border-slate-200 px-6 py-4 rounded-3xl shadow-sm">
                 <button
@@ -549,7 +616,7 @@ export default function App() {
                   <div className="flex bg-[#5AC8FA] items-stretch h-32 border-b-2 border-black/10">
                     <div className="flex-1 bg-white m-3 rounded-2xl border-4 border-[#419CD8] shadow-inner flex flex-col items-center justify-center relative overflow-hidden">
                       <div className="absolute top-0 left-0 w-8 h-8 rounded-full border-4 border-yellow-400 -m-3"></div>
-                      <h3 className="text-4xl font-black text-black tracking-tighter italic">DAILY REPORT</h3>
+                      <h3 className="text-3xl font-black text-black tracking-tighter italic">DAILY REPORT</h3>
                       <div className="bg-[#F27D26] text-white px-6 py-0.5 rounded-full text-[10px] font-bold mt-2 shadow-md border-white/30 border">
                         每日及時更新準時送達
                       </div>
@@ -610,30 +677,30 @@ export default function App() {
 
                   {/* Table area */}
                   <div className="bg-white overflow-x-auto">
-                    <table className="w-full text-left border-collapse">
+                    <table className="w-full text-left border-collapse table-fixed">
                       <thead>
                         <tr className="bg-[#60A5FA] text-white text-base">
-                          <th className="px-3 py-1 border-r border-[#419CD8] w-1/4">Manager</th>
-                          <th className="px-3 py-1 border-r border-[#419CD8]">Name (HKID)</th>
-                          <th className="px-3 py-1 border-r border-[#419CD8] text-center w-[120px]">FYC</th>
-                          <th className="px-3 py-1 text-center w-[100px]">Case</th>
+                          <th className="px-2.5 py-1 border-r border-[#419CD8] w-[140px] text-sm">Manager</th>
+                          <th className="px-2.5 py-1 border-r border-[#419CD8] w-[180px] text-sm">Name (HKID)</th>
+                          <th className="px-2.5 py-1 border-r border-[#419CD8] text-center w-[90px] text-sm">FYC</th>
+                          <th className="px-2.5 py-1 text-center w-[60px] text-sm">Case</th>
                         </tr>
                       </thead>
-                      <tbody className="text-sm font-medium">
+                      <tbody className="text-xs font-medium">
                         {reportData.map((group) => (
                           <Fragment key={group.manager}>
                             {group.records.map((record, idx) => (
                               <tr key={`${record.name}-${idx}`} className="border-b border-gray-100 hover:bg-sky-50 transition-colors uppercase">
-                                <td className="px-3 py-1 border-r border-gray-100 font-bold">
+                                <td className="px-2.5 py-1 border-r border-gray-100 font-bold truncate w-[140px]" title={group.manager}>
                                   {idx === 0 ? `- ${group.manager}` : ""}
                                 </td>
-                                <td className="px-3 py-1 border-r border-gray-100">
+                                <td className="px-2.5 py-1 border-r border-gray-100 truncate w-[180px]" title={record.name}>
                                   {record.name}
                                 </td>
-                                <td className="px-3 py-1 border-r border-gray-100 text-right font-semibold">
+                                <td className="px-2.5 py-1 border-r border-gray-100 text-right font-semibold w-[90px]">
                                   {record.fyc.toLocaleString()}
                                 </td>
-                                <td className="px-3 py-1 text-right">
+                                <td className="px-2.5 py-1 text-right w-[60px]">
                                   {record.cases}
                                 </td>
                               </tr>
@@ -641,13 +708,13 @@ export default function App() {
                           </Fragment>
                         ))}
                       </tbody>
-                      <tfoot className="font-black text-lg bg-white border-t border-gray-300">
+                      <tfoot className="font-black text-base bg-white border-t border-gray-300">
                          <tr>
-                           <td colSpan={2} className="px-3 py-1 border-r border-gray-100"></td>
-                           <td className="px-3 py-1 border-r border-gray-100 text-right underline decoration-double underline-offset-4">
+                           <td colSpan={2} className="px-2.5 py-1 border-r border-gray-100"></td>
+                           <td className="px-2.5 py-1 border-r border-gray-100 text-right underline decoration-double underline-offset-4">
                              {grandTotals.fyc.toLocaleString()}
                            </td>
-                           <td className="px-3 py-1 text-right underline decoration-double underline-offset-4">
+                           <td className="px-2.5 py-1 text-right underline decoration-double underline-offset-4">
                              {grandTotals.cases.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 1 })}
                            </td>
                          </tr>
