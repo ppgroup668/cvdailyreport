@@ -152,13 +152,14 @@ export default function App() {
 
       /**
        * Headcount 處理:
-       * B 行 (Index 1): District (篩選: 包含 "CALVIN WONG")
+       * B 行 (Index 1): District
        * K 行 (Index 10): Manager (Upline Manager Name)
        * D 行 (Index 3): Name (HKID)
        */
       const normalizeName = (name: string) => name.replace(/[^a-zA-Z0-9\u4e00-\u9fa5]/g, '').toUpperCase();
       const headcountMap = new Map<string, { manager: string; originalName: string }>();
       const nameToChiMap = new Map<string, string>();
+      const personTeamMap = new Map<string, string>();
       
       headcountRows.forEach((row, idx) => {
         if (idx === 0) return; // 跳過標題
@@ -171,6 +172,14 @@ export default function App() {
           nameToChiMap.set(normalizeName(nameRaw), chineseNameRaw);
         }
 
+        // 記錄所有人的 Team (以備經理比對)
+        if (nameRaw && colBRaw) {
+          personTeamMap.set(normalizeName(nameRaw), colBRaw);
+        }
+        if (chineseNameRaw && colBRaw) {
+          personTeamMap.set(normalizeName(chineseNameRaw), colBRaw);
+        }
+
         // 篩選 B 行是否等於已選擇的團隊 (Team)
         const isMatchedTeam = selectedTeam 
           ? colBRaw === selectedTeam.toUpperCase()
@@ -180,6 +189,34 @@ export default function App() {
           headcountMap.set(normalizeName(nameRaw), { manager: managerRaw, originalName: nameRaw });
         }
       });
+
+      // 尋找經理資訊的輔助函式
+      const findManagerInfo = (mName: string) => {
+        if (!mName) return null;
+        const normM = normalizeName(mName);
+        
+        // 1. 精確匹配
+        if (personTeamMap.has(normM)) {
+          return {
+            team: personTeamMap.get(normM) || "",
+            chineseName: nameToChiMap.get(normM) || null
+          };
+        }
+
+        // 2. 模糊匹配 (包含關係，排除極短名字)
+        for (const [headcountNorm, team] of personTeamMap.entries()) {
+          if (headcountNorm.length >= 4 && normM.length >= 4) {
+            if (headcountNorm.includes(normM) || normM.includes(headcountNorm)) {
+              return {
+                team,
+                chineseName: nameToChiMap.get(headcountNorm) || null
+              };
+            }
+          }
+        }
+
+        return null;
+      };
 
       let extractedDate = new Date().toISOString().split('T')[0];
       if (productionRows.length > 1 && productionRows[1][2]) {
@@ -217,24 +254,24 @@ export default function App() {
 
           if (isMatched) {
             const existing = productionMap.get(key) || { fyc: 0, cases: 0, manager: "", originalName: "" };
-            let m = managerFromProd;
-            const originalName = headcountMap.get(key)?.originalName || nameRaw;
-            
-            if (m) {
-              const mChi = nameToChiMap.get(normalizeName(m));
-              if (mChi) {
-                m = mChi;
-              }
-            }
+            const managerInfo = findManagerInfo(managerFromProd);
 
-            // 只有當 Manager 名字存在且不是 Unassigned 時才加入
-            if (m && m.trim() !== "" && m !== "Unassigned") {
-              productionMap.set(key, {
-                fyc: existing.fyc + fyc,
-                cases: existing.cases + cases,
-                manager: m,
-                originalName: originalName || existing.originalName || nameRaw
-              });
+            // 1. MATCH 不到 MANAGER 名字，要隱藏
+            // 2. 經理必須屬於當前選擇的團隊，否則不應該出現在該團隊的報表
+            const targetTeam = (selectedTeam || "CALVIN WONG").toUpperCase();
+            
+            if (managerInfo && (managerInfo.team === targetTeam || managerInfo.team.includes(targetTeam))) {
+              const m = managerInfo.chineseName || managerFromProd;
+              const originalName = headcountMap.get(key)?.originalName || nameRaw;
+              
+              if (m && m.trim() !== "" && m !== "Unassigned") {
+                productionMap.set(key, {
+                  fyc: existing.fyc + fyc,
+                  cases: existing.cases + cases,
+                  manager: m,
+                  originalName: originalName || existing.originalName || nameRaw
+                });
+              }
             }
           }
         }
@@ -277,7 +314,7 @@ export default function App() {
     } finally {
       setIsProcessing(false);
     }
-  }, [headcountFile, productionFile]);
+  }, [headcountFile, productionFile, selectedTeam]);
 
   const grandTotals = useMemo(() => {
     if (!reportData) return { fyc: 0, cases: 0 };
