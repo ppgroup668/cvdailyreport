@@ -80,6 +80,9 @@ export default function App() {
       const data = await res.json();
       setReportData(data.reportData);
       setReportDate(data.date);
+      if (data.selectedTeams) {
+        setSelectedTeams(data.selectedTeams);
+      }
       setActiveView('reports');
     } catch (err: any) {
       setError(err.message || '載入日期數據失敗。');
@@ -597,6 +600,46 @@ export default function App() {
     }), { fyc: 0, cases: 0 });
   }, [reportData]);
 
+  const isMultiTeam = useMemo(() => {
+    return selectedTeams && selectedTeams.length > 1;
+  }, [selectedTeams]);
+
+  const theme = useMemo(() => {
+    if (isMultiTeam) {
+      return {
+        outerBg: 'bg-[#FFB020]', // Amber/Orange-Yellow
+        outerBorder: 'border-[#D97706]',
+        headerBg: 'bg-[#F59E0B]',
+        innerBorder: 'border-[#D97706]',
+        textColor: 'text-amber-900',
+        districtRowBg: 'bg-amber-50/70',
+        districtRowText: 'text-amber-950',
+        districtRowBorder: 'border-amber-100',
+        bulletColor: 'text-[#D97706]',
+        hoverBg: 'hover:bg-[#D97706]/60',
+        accentText: 'text-[#D97706]',
+        btnAccent: 'accent-[#D97706]',
+        spinnerBorder: 'border-t-[#D97706]'
+      };
+    } else {
+      return {
+        outerBg: 'bg-[#5AC8FA]', // Classic Blue
+        outerBorder: 'border-[#419CD8]',
+        headerBg: 'bg-[#60A5FA]',
+        innerBorder: 'border-[#419CD8]',
+        textColor: 'text-blue-900',
+        districtRowBg: 'bg-blue-50/70',
+        districtRowText: 'text-blue-950',
+        districtRowBorder: 'border-blue-100',
+        bulletColor: 'text-[#419CD8]',
+        hoverBg: 'hover:bg-[#419CD8]/60',
+        accentText: 'text-[#419CD8]',
+        btnAccent: 'accent-[#419CD8]',
+        spinnerBorder: 'border-t-[#419CD8]'
+      };
+    }
+  }, [isMultiTeam]);
+
   const totalTableWidth = useMemo(() => {
     return colWidths.manager + colWidths.name + colWidths.fycc + colWidths.case;
   }, [colWidths]);
@@ -662,7 +705,7 @@ export default function App() {
           
           {isViewerLoading ? (
             <div className="flex flex-col items-center justify-center py-24 space-y-4 bg-white border border-slate-200 rounded-3xl shadow-sm">
-              <div className="w-12 h-12 border-4 border-slate-200 border-t-[#419CD8] rounded-full animate-spin"></div>
+              <div className={cn("w-12 h-12 border-4 border-slate-200 rounded-full animate-spin", theme.spinnerBorder)}></div>
               <p className="text-sm font-bold text-slate-600 animate-pulse">正在載入專屬分享數據，請稍候...</p>
             </div>
           ) : (
@@ -990,11 +1033,11 @@ export default function App() {
                 </div>
               )}
 
-              <div className="bg-[#5AC8FA] p-1 shadow-2xl rounded-sm overflow-hidden">
-                <div className="bg-[#5AC8FA] relative border-[6px] border-[#419CD8] rounded-xl overflow-hidden">
+              <div className={cn(theme.outerBg, "p-1 shadow-2xl rounded-sm overflow-hidden")}>
+                <div className={cn(theme.outerBg, "relative border-[6px]", theme.outerBorder, "rounded-xl overflow-hidden")}>
                   {/* Header Section */}
-                  <div className="flex bg-[#5AC8FA] items-stretch h-32 border-b-2 border-black/10">
-                    <div className="flex-1 bg-white m-3 rounded-2xl border-4 border-[#419CD8] shadow-inner flex flex-col items-center justify-center relative overflow-hidden">
+                  <div className={cn("flex items-stretch h-32 border-b-2 border-black/10", theme.outerBg)}>
+                    <div className={cn("flex-1 bg-white m-3 rounded-2xl border-4 shadow-inner flex flex-col items-center justify-center relative overflow-hidden", theme.outerBorder)}>
                       <div className="absolute top-0 left-0 w-8 h-8 rounded-full border-4 border-yellow-400 -m-3"></div>
                       <h3 className="text-3xl font-black text-black tracking-tighter italic">DAILY REPORT</h3>
                       <div className="bg-[#F27D26] text-white px-6 py-0.5 rounded-full text-[10px] font-bold mt-2 shadow-md border-white/30 border">
@@ -1003,7 +1046,7 @@ export default function App() {
                     </div>
                     
                     {/* Logo Section */}
-                    <div className="w-32 bg-white m-3 rounded-2xl border-4 border-[#419CD8] shadow-inner flex items-center justify-center flex-shrink-0 relative group overflow-hidden">
+                    <div className={cn("w-32 bg-white m-3 rounded-2xl border-4 shadow-inner flex items-center justify-center flex-shrink-0 relative group overflow-hidden", theme.outerBorder)}>
                       {logoUrl ? (
                         <div className="relative w-full h-full flex items-center justify-center p-2 bg-white">
                           <img 
@@ -1014,7 +1057,7 @@ export default function App() {
                           />
                           {!isViewerMode && (
                             <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-1.5 z-10">
-                              <label className="cursor-pointer bg-[#419CD8] hover:bg-[#3587bd] text-white text-[10px] font-bold px-2 py-1 rounded shadow-sm transition-colors text-center">
+                              <label className={cn("cursor-pointer text-white text-[10px] font-bold px-2 py-1 rounded shadow-sm transition-colors text-center", isMultiTeam ? "bg-[#D97706] hover:bg-[#b45309]" : "bg-[#419CD8] hover:bg-[#3587bd]")}>
                                 更換 LOGO
                                 <input 
                                   type="file" 
@@ -1035,13 +1078,13 @@ export default function App() {
                         </div>
                       ) : isViewerMode ? (
                         <div className="flex flex-col items-center justify-center text-center p-2">
-                          <TrendingUp className="w-6 h-6 text-[#419CD8] mb-1" />
-                          <span className="text-[10px] font-black text-[#419CD8] tracking-widest uppercase">SALES REPORT</span>
+                          <TrendingUp className={cn("w-6 h-6 mb-1", theme.bulletColor)} />
+                          <span className={cn("text-[10px] font-black tracking-widest uppercase", theme.bulletColor)}>SALES REPORT</span>
                         </div>
                       ) : (
                         <label className="flex flex-col items-center justify-center w-full h-full cursor-pointer hover:bg-slate-50 transition-colors p-2 text-center select-none">
-                          <FileUp className="w-5 h-5 text-[#419CD8] mb-1 group-hover:scale-110 transition-transform" />
-                          <span className="text-[10px] font-black text-[#419CD8] uppercase tracking-wider">上傳 LOGO</span>
+                          <FileUp className={cn("w-5 h-5 mb-1 group-hover:scale-110 transition-transform", theme.bulletColor)} />
+                          <span className={cn("text-[10px] font-black uppercase tracking-wider", theme.bulletColor)}>上傳 LOGO</span>
                           <input 
                             type="file" 
                             accept="image/*" 
@@ -1083,7 +1126,7 @@ export default function App() {
                             max="40" 
                             value={fontSize} 
                             onChange={(e) => setFontSize(parseInt(e.target.value))}
-                            className="w-20 accent-[#419CD8] cursor-pointer"
+                            className={cn("w-20 cursor-pointer", theme.btnAccent)}
                           />
                           <span className="text-slate-400 font-mono w-7">{fontSize}px</span>
                         </div>
@@ -1097,7 +1140,7 @@ export default function App() {
                             max="40" 
                             value={rowPadding} 
                             onChange={(e) => setRowPadding(parseInt(e.target.value))}
-                            className="w-20 accent-[#419CD8] cursor-pointer"
+                            className={cn("w-20 cursor-pointer", theme.btnAccent)}
                           />
                           <span className="text-slate-400 font-mono w-7">{rowPadding}px</span>
                         </div>
@@ -1130,52 +1173,52 @@ export default function App() {
                         <col style={{ width: colWidths.case }} />
                       </colgroup>
                       <thead>
-                        <tr className="bg-[#60A5FA] text-white">
+                        <tr className={cn("text-white", theme.headerBg)}>
                           <th 
-                            className="relative px-3 border-r border-[#419CD8] font-black select-none group"
+                            className={cn("relative px-3 border-r font-black select-none group", theme.innerBorder)}
                             style={{ paddingTop: `${rowPadding}px`, paddingBottom: `${rowPadding}px`, fontSize: `${fontSize}px` }}
                           >
                             <div className="truncate pr-3">Manager</div>
                             <div 
                               onMouseDown={(e) => handleResizeStart('manager', e)}
-                              className="absolute right-0 top-0 bottom-0 w-2.5 cursor-col-resize hover:bg-[#419CD8]/60 active:bg-blue-600 z-10 transition-colors"
+                              className={cn("absolute right-0 top-0 bottom-0 w-2.5 cursor-col-resize z-10 transition-colors", theme.hoverBg)}
                               title="左右拖動調整寬度"
                             />
                             <div 
                               onMouseDown={handleRowHeightResizeStart}
-                              className="absolute left-0 right-0 bottom-0 h-2 cursor-row-resize hover:bg-[#419CD8]/60 active:bg-blue-600 z-20 transition-colors"
+                              className={cn("absolute left-0 right-0 bottom-0 h-2 cursor-row-resize z-20 transition-colors", theme.hoverBg)}
                               title="上下拖動調整行高"
                             />
                           </th>
                           <th 
-                            className="relative px-3 border-r border-[#419CD8] font-black select-none group"
+                            className={cn("relative px-3 border-r font-black select-none group", theme.innerBorder)}
                             style={{ paddingTop: `${rowPadding}px`, paddingBottom: `${rowPadding}px`, fontSize: `${fontSize}px` }}
                           >
                             <div className="truncate pr-3">Name (HKID)</div>
                             <div 
                               onMouseDown={(e) => handleResizeStart('name', e)}
-                              className="absolute right-0 top-0 bottom-0 w-2.5 cursor-col-resize hover:bg-[#419CD8]/60 active:bg-blue-600 z-10 transition-colors"
+                              className={cn("absolute right-0 top-0 bottom-0 w-2.5 cursor-col-resize z-10 transition-colors", theme.hoverBg)}
                               title="左右拖動調整寬度"
                             />
                             <div 
                               onMouseDown={handleRowHeightResizeStart}
-                              className="absolute left-0 right-0 bottom-0 h-2 cursor-row-resize hover:bg-[#419CD8]/60 active:bg-blue-600 z-20 transition-colors"
+                              className={cn("absolute left-0 right-0 bottom-0 h-2 cursor-row-resize z-20 transition-colors", theme.hoverBg)}
                               title="上下拖動調整行高"
                             />
                           </th>
                           <th 
-                            className="relative px-3 border-r border-[#419CD8] text-center font-black select-none group"
+                            className={cn("relative px-3 border-r text-center font-black select-none group", theme.innerBorder)}
                             style={{ paddingTop: `${rowPadding}px`, paddingBottom: `${rowPadding}px`, fontSize: `${fontSize}px` }}
                           >
                             <div className="truncate px-1">FYCC</div>
                             <div 
                               onMouseDown={(e) => handleResizeStart('fycc', e)}
-                              className="absolute right-0 top-0 bottom-0 w-2.5 cursor-col-resize hover:bg-[#419CD8]/60 active:bg-blue-600 z-10 transition-colors"
+                              className={cn("absolute right-0 top-0 bottom-0 w-2.5 cursor-col-resize z-10 transition-colors", theme.hoverBg)}
                               title="左右拖動調整寬度"
                             />
                             <div 
                               onMouseDown={handleRowHeightResizeStart}
-                              className="absolute left-0 right-0 bottom-0 h-2 cursor-row-resize hover:bg-[#419CD8]/60 active:bg-blue-600 z-20 transition-colors"
+                              className={cn("absolute left-0 right-0 bottom-0 h-2 cursor-row-resize z-20 transition-colors", theme.hoverBg)}
                               title="上下拖動調整行高"
                             />
                           </th>
@@ -1186,12 +1229,12 @@ export default function App() {
                             <div className="truncate px-1">Case</div>
                             <div 
                               onMouseDown={(e) => handleResizeStart('case', e)}
-                              className="absolute right-0 top-0 bottom-0 w-2.5 cursor-col-resize hover:bg-[#419CD8]/60 active:bg-blue-600 z-10 transition-colors"
+                              className={cn("absolute right-0 top-0 bottom-0 w-2.5 cursor-col-resize z-10 transition-colors", theme.hoverBg)}
                               title="左右拖動調整寬度"
                             />
                             <div 
                               onMouseDown={handleRowHeightResizeStart}
-                              className="absolute left-0 right-0 bottom-0 h-2 cursor-row-resize hover:bg-[#419CD8]/60 active:bg-blue-600 z-20 transition-colors"
+                              className={cn("absolute left-0 right-0 bottom-0 h-2 cursor-row-resize z-20 transition-colors", theme.hoverBg)}
                               title="上下拖動調整行高"
                             />
                           </th>
@@ -1201,25 +1244,25 @@ export default function App() {
                         {reportData.map((distGroup) => (
                            <Fragment key={distGroup.district}>
                              {/* District Classification Row */}
-                             <tr className="bg-blue-50/70 text-blue-950 border-b border-blue-100 uppercase font-black">
+                             <tr className={cn(theme.districtRowBg, theme.districtRowText, "border-b uppercase font-black", theme.districtRowBorder)}>
                                <td 
                                  colSpan={2} 
-                                 className="px-3 border-r border-blue-100 truncate"
+                                 className={cn("px-3 border-r truncate", theme.districtRowBorder)}
                                  style={{ paddingTop: `${rowPadding}px`, paddingBottom: `${rowPadding}px` }}
                                >
                                  <div className="flex items-center gap-1.5">
-                                   <span className="text-[#419CD8]">■</span>
+                                   <span className={theme.bulletColor}>■</span>
                                    <span className="truncate">{distGroup.district}</span>
                                  </div>
                                </td>
                                <td 
-                                 className="px-3 border-r border-blue-100 text-right font-black text-blue-900 truncate"
+                                 className={cn("px-3 border-r text-right font-black truncate", theme.districtRowBorder, theme.textColor)}
                                  style={{ paddingTop: `${rowPadding}px`, paddingBottom: `${rowPadding}px` }}
                                >
                                  {distGroup.totalFYC.toLocaleString()}
                                </td>
                                <td 
-                                 className="px-3 text-right font-black text-blue-900 truncate"
+                                 className={cn("px-3 text-right font-black truncate", theme.textColor)}
                                  style={{ paddingTop: `${rowPadding}px`, paddingBottom: `${rowPadding}px` }}
                                >
                                  {distGroup.totalCases.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 })}
@@ -1274,13 +1317,13 @@ export default function App() {
                               TOTAL
                             </td>
                             <td 
-                              className="px-3 border-r border-gray-100 text-right underline decoration-double underline-offset-4 truncate text-blue-950"
+                              className={cn("px-3 border-r border-gray-100 text-right underline decoration-double underline-offset-4 truncate", theme.textColor)}
                               style={{ paddingTop: `${rowPadding}px`, paddingBottom: `${rowPadding}px` }}
                             >
                               {grandTotals.fyc.toLocaleString()}
                             </td>
                             <td 
-                              className="px-3 text-right underline decoration-double underline-offset-4 truncate text-blue-950"
+                              className={cn("px-3 text-right underline decoration-double underline-offset-4 truncate", theme.textColor)}
                               style={{ paddingTop: `${rowPadding}px`, paddingBottom: `${rowPadding}px` }}
                             >
                               {grandTotals.cases.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 })}
