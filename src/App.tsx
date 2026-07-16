@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { useState, useCallback, useMemo, Fragment, ChangeEvent } from 'react';
+import { useState, useCallback, useMemo, Fragment, ChangeEvent, useEffect } from 'react';
 import * as XLSX from 'xlsx';
 import { 
   FileUp, 
@@ -35,6 +35,59 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [activeView, setActiveView] = useState<'dashboard' | 'reports'>('dashboard');
   const [logoUrl, setLogoUrl] = useState<string | null>(null);
+  const [availableTeams, setAvailableTeams] = useState<string[]>([]);
+  const [selectedTeam, setSelectedTeam] = useState<string>('');
+
+  // 當 headcountFile 改變時，異步讀取並提取所有 unique teams
+  useEffect(() => {
+    if (!headcountFile) {
+      setAvailableTeams([]);
+      setSelectedTeam('');
+      return;
+    }
+
+    const readTeams = async () => {
+      try {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          try {
+            const data = e.target?.result;
+            const workbook = XLSX.read(data, { type: 'binary' });
+            const firstSheetName = workbook.SheetNames[0];
+            const worksheet = workbook.Sheets[firstSheetName];
+            const arrays = XLSX.utils.sheet_to_json(worksheet, { header: 1 }) as any[][];
+            
+            const teamsSet = new Set<string>();
+            arrays.forEach((row, idx) => {
+              if (idx === 0) return; // skip header
+              const colBRaw = String(row[1] || '').trim().toUpperCase();
+              if (colBRaw) {
+                teamsSet.add(colBRaw);
+              }
+            });
+
+            const sortedTeams = Array.from(teamsSet).sort((a, b) => a.localeCompare(b));
+            setAvailableTeams(sortedTeams);
+
+            // 尋找包含 "CALVIN WONG" 的 Team 作為預設選取，若無則選第一個
+            const calvinTeam = sortedTeams.find(t => t.includes('CALVIN WONG'));
+            if (calvinTeam) {
+              setSelectedTeam(calvinTeam);
+            } else if (sortedTeams.length > 0) {
+              setSelectedTeam(sortedTeams[0]);
+            }
+          } catch (err) {
+            console.error("Error reading teams from headcount file:", err);
+          }
+        };
+        reader.readAsBinaryString(headcountFile);
+      } catch (err) {
+        console.error(err);
+      }
+    };
+
+    readTeams();
+  }, [headcountFile]);
 
   const handleLogoUpload = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -118,8 +171,12 @@ export default function App() {
           nameToChiMap.set(normalizeName(nameRaw), chineseNameRaw);
         }
 
-        // 篩選 B 行是否包含 CALVIN WONG
-        if (nameRaw && colBRaw.includes('CALVIN WONG')) {
+        // 篩選 B 行是否等於已選擇的團隊 (Team)
+        const isMatchedTeam = selectedTeam 
+          ? colBRaw === selectedTeam.toUpperCase()
+          : colBRaw.includes('CALVIN WONG');
+
+        if (nameRaw && isMatchedTeam) {
           headcountMap.set(normalizeName(nameRaw), { manager: managerRaw, originalName: nameRaw });
         }
       });
@@ -139,18 +196,18 @@ export default function App() {
       /**
        * Sales Production 處理:
        * E 行 (Index 4): Name (HKID)
-       * O 行 (Index 14): Case
-       * P 行 (Index 15): FYC
+       * O 行 (Index 14): FYC
+       * P 行 (Index 15): Case
        */
       const productionMap = new Map<string, { fyc: number; cases: number; manager: string; originalName: string }>();
       productionRows.forEach((row, idx) => {
         if (idx === 0) return;
         const nameRaw = String(row[4] || '').trim();
-        const fycRaw = String(row[15] || '0').replace(/,/g, '');
-        const casesRaw = String(row[14] || '0').replace(/,/g, '');
-        const fyc = Math.round(parseFloat(fycRaw) || 0); // P 行
-        const cases = parseFloat(casesRaw) || 0; // O 行
-        const managerFromProd = String(row[1] || '').trim(); // B 行
+        const fycRaw = String(row[14] || '0').replace(/,/g, '');
+        const casesRaw = String(row[15] || '0').replace(/,/g, '');
+        const fyc = Math.round(parseFloat(fycRaw) || 0); // O 行
+        const cases = parseFloat(casesRaw) || 0; // P 行
+        const managerFromProd = String(row[2] || '').trim(); // C 行
 
         // 只要大於等於 0.5 就顯示 (使用者要求: > 0.5 都顯示)
         if (nameRaw && (fyc >= 0.5 || cases >= 0.5)) {
@@ -160,7 +217,7 @@ export default function App() {
 
           if (isMatched) {
             const existing = productionMap.get(key) || { fyc: 0, cases: 0, manager: "", originalName: "" };
-            let m = headcountMap.get(key)?.manager;
+            let m = managerFromProd;
             const originalName = headcountMap.get(key)?.originalName || nameRaw;
             
             if (m) {
@@ -360,6 +417,41 @@ export default function App() {
                 </div>
               </div>
             </div>
+
+            {headcountFile && availableTeams.length > 0 && (
+              <motion.div 
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="mt-8 p-6 bg-blue-50/40 rounded-2xl border border-blue-100 max-w-xl mx-auto shadow-sm"
+              >
+                <label className="block text-sm font-extrabold text-slate-700 mb-2 flex items-center gap-2">
+                  <Users className="w-4 h-4 text-[#419CD8]" />
+                  選擇要生成報表的團隊 (District / Team)
+                </label>
+                <div className="relative">
+                  <select
+                    value={selectedTeam}
+                    onChange={(e) => {
+                      setSelectedTeam(e.target.value);
+                      setReportData(null); // 當更換團隊時，清除舊的報告
+                    }}
+                    className="w-full bg-white border border-slate-200 rounded-xl px-4 py-3 text-sm font-semibold text-slate-800 shadow-sm focus:border-[#419CD8] focus:ring-1 focus:ring-[#419CD8] transition-all outline-none appearance-none cursor-pointer"
+                  >
+                    {availableTeams.map((team) => (
+                      <option key={team} value={team}>
+                        {team}
+                      </option>
+                    ))}
+                  </select>
+                  <div className="absolute inset-y-0 right-4 flex items-center pointer-events-none text-slate-400 font-bold text-[10px]">
+                    ▼
+                  </div>
+                </div>
+                <p className="text-[11px] text-slate-500 mt-2 leading-relaxed">
+                  系統已自動讀取 Headcount 檔案 B 行的 <b>District</b>。預設已為您選中包含 <b>CALVIN WONG</b> 的團隊。若想生成其他團隊的報告，可在上方下拉選單中自行切換。
+                </p>
+              </motion.div>
+            )}
 
             <div className="mt-8 flex justify-center gap-4">
               <button
