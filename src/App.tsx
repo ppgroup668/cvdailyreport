@@ -20,7 +20,10 @@ import {
   Copy,
   Check,
   ExternalLink,
-  Calendar
+  Calendar,
+  Eye,
+  EyeOff,
+  Globe
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from './lib/utils';
@@ -31,6 +34,30 @@ import {
   ManagerGroup,
   DistrictGroup
 } from './types';
+
+// Decode base64 Unicode string safely
+const decodeData = (encoded: string): any => {
+  try {
+    const binary = atob(encoded.replace(/-/g, '+').replace(/_/g, '/'));
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+    const jsonStr = new TextDecoder().decode(bytes);
+    return JSON.parse(jsonStr);
+  } catch (err) {
+    console.error('decodeData error:', err);
+    throw err;
+  }
+};
+
+// Encode base64 Unicode string safely
+const encodeData = (data: any): string => {
+  const jsonStr = JSON.stringify(data);
+  const bytes = new TextEncoder().encode(jsonStr);
+  const binary = Array.from(bytes, byte => String.fromCharCode(byte)).join('');
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+};
 
 export default function App() {
   const [headcountFile, setHeadcountFile] = useState<File | null>(null);
@@ -55,6 +82,7 @@ export default function App() {
   // Self-adjust row padding (height) and font size
   const [rowPadding, setRowPadding] = useState(16); // vertical padding in pixels (matches py-4)
   const [fontSize, setFontSize] = useState(24);     // font size in pixels (default 24px)
+  const [isLayoutControlVisible, setIsLayoutControlVisible] = useState(true);
 
   // --- Sharing & Viewer States ---
   const [shareId, setShareId] = useState<string | null>(() => {
@@ -68,6 +96,10 @@ export default function App() {
   const [isPublishing, setIsPublishing] = useState(false);
   const [publishSuccessMessage, setPublishSuccessMessage] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+
+  // Static/Offline state sharing
+  const [staticShareUrl, setStaticShareUrl] = useState<string | null>(null);
+  const [copiedStatic, setCopiedStatic] = useState(false);
 
   // Helper to load date-specific viewer data
   const loadViewerReportForDate = async (targetShareId: string, targetDate: string) => {
@@ -127,7 +159,7 @@ export default function App() {
 
   // Viewer date changer
   const handleViewerDateChange = async (newDate: string) => {
-    if (!viewerShareId) return;
+    if (!viewerShareId || viewerShareId === 'static') return;
     setViewerSelectedDate(newDate);
     const newUrl = `${window.location.pathname}?share=${viewerShareId}&date=${newDate}`;
     window.history.pushState({ path: newUrl }, '', newUrl);
@@ -216,11 +248,279 @@ export default function App() {
     }
   };
 
+  // Generate static serverless share link
+  const generateStaticShareLink = () => {
+    if (!reportData) return;
+    try {
+      const payload = {
+        date: reportDate,
+        logo: logoUrl,
+        selectedTeams: selectedTeams,
+        reportData: reportData,
+        fontSize: fontSize,
+        rowPadding: rowPadding,
+        colWidths: colWidths
+      };
+      const encoded = encodeData(payload);
+      const shareLink = `${window.location.origin}${window.location.pathname}?data=${encoded}`;
+      setStaticShareUrl(shareLink);
+    } catch (err) {
+      console.error('Failed to generate static share link:', err);
+      setError('產生靜態分享連結失敗，請稍後重試。');
+    }
+  };
+
+  // Download standalone interactive HTML
+  const downloadStandaloneHtml = () => {
+    if (!reportData) return;
+    try {
+      const title = `DAILY REPORT - as of ${reportDate}`;
+      const mainThemeClass = isMultiTeam ? "bg-[#FFB020] text-amber-900 border-[#D97706]" : "bg-[#5AC8FA] text-blue-900 border-[#419CD8]";
+      const outerBorderClass = isMultiTeam ? "border-[#D97706]" : "border-[#419CD8]";
+      const headerBgClass = isMultiTeam ? "bg-[#F59E0B]" : "bg-[#60A5FA]";
+      const districtRowBgClass = isMultiTeam ? "bg-amber-50/70 text-amber-950 border-amber-100" : "bg-blue-50/70 text-blue-950 border-blue-100";
+      const bulletColor = isMultiTeam ? "#D97706" : "#419CD8";
+      
+      let tableRowsHtml = "";
+      reportData.forEach((distGroup: any) => {
+        tableRowsHtml += `
+          <!-- District Classification Row -->
+          <tr class="${districtRowBgClass} border-b font-black uppercase">
+            <td colspan="2" class="px-3 border-r ${isMultiTeam ? 'border-amber-100' : 'border-blue-100'} truncate" style="padding-top: ${rowPadding}px; padding-bottom: ${rowPadding}px; font-size: ${fontSize}px;">
+              <div class="flex items-center gap-1.5" style="display: flex; align-items: center; gap: 0.375rem;">
+                <span style="color: ${bulletColor}; font-weight: bold; margin-right: 0.375rem;">■</span>
+                <span class="truncate">${distGroup.district}</span>
+              </div>
+            </td>
+            <td class="px-3 border-r ${isMultiTeam ? 'border-amber-100' : 'border-blue-100'} text-right font-black truncate" style="padding-top: ${rowPadding}px; padding-bottom: ${rowPadding}px; font-size: ${fontSize}px;">
+              ${distGroup.totalFYC.toLocaleString()}
+            </td>
+            <td class="px-3 text-right font-black truncate" style="padding-top: ${rowPadding}px; padding-bottom: ${rowPadding}px; font-size: ${fontSize}px;">
+              ${distGroup.totalCases.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 })}
+            </td>
+          </tr>
+        `;
+        
+        distGroup.rows.forEach((row: any) => {
+          tableRowsHtml += `
+            <tr class="hover:bg-slate-50/80 border-b border-gray-100 transition-colors">
+              <td class="px-3 border-r border-gray-100 font-bold truncate" style="padding-top: ${rowPadding}px; padding-bottom: ${rowPadding}px; font-size: ${fontSize}px;">
+                ${row.manager}
+              </td>
+              <td class="px-3 border-r border-gray-100 truncate" style="padding-top: ${rowPadding}px; padding-bottom: ${rowPadding}px; font-size: ${fontSize}px;">
+                <div class="flex flex-col">
+                  <span class="font-extrabold text-slate-900">${row.name}</span>
+                  ${row.hkid ? `<span class="text-[10px] font-mono text-slate-400 mt-0.5">${row.hkid}</span>` : ""}
+                </div>
+              </td>
+              <td class="px-3 border-r border-gray-100 text-right font-black text-slate-800 tabular-nums truncate" style="padding-top: ${rowPadding}px; padding-bottom: ${rowPadding}px; font-size: ${fontSize}px;">
+                ${row.fyc.toLocaleString()}
+              </td>
+              <td class="px-3 text-right font-black text-slate-800 tabular-nums truncate" style="padding-top: ${rowPadding}px; padding-bottom: ${rowPadding}px; font-size: ${fontSize}px;">
+                ${row.cases.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 })}
+              </td>
+            </tr>
+          `;
+        });
+      });
+
+      const grandTotalsHtml = `
+        <tr class="bg-slate-50/50 font-black text-slate-900 border-t-2 border-black/10">
+          <td colspan="2" class="px-3 border-r border-gray-100 text-left truncate" style="padding-top: ${rowPadding}px; padding-bottom: ${rowPadding}px; font-size: ${fontSize}px;">
+            TOTAL
+          </td>
+          <td class="px-3 border-r border-gray-100 text-right underline decoration-double underline-offset-4 truncate" style="padding-top: ${rowPadding}px; padding-bottom: ${rowPadding}px; font-size: ${fontSize}px; color: ${isMultiTeam ? '#92400e' : '#1e3a8a'};">
+            ${grandTotals.fyc.toLocaleString()}
+          </td>
+          <td class="px-3 text-right underline decoration-double underline-offset-4 truncate" style="padding-top: ${rowPadding}px; padding-bottom: ${rowPadding}px; font-size: ${fontSize}px; color: ${isMultiTeam ? '#92400e' : '#1e3a8a'};">
+            ${grandTotals.cases.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 })}
+          </td>
+        </tr>
+      `;
+
+      const logoImgHtml = logoUrl 
+        ? `<img src="${logoUrl}" alt="Logo" class="max-w-full max-h-full object-contain" />` 
+        : `<div class="flex flex-col items-center justify-center text-center p-2 text-slate-400">
+             <span class="text-[10px] font-black tracking-widest uppercase">SALES REPORT</span>
+           </div>`;
+
+      const standaloneHtml = `<!DOCTYPE html>
+<html lang="zh-HK">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${title}</title>
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Google Fonts -->
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+  <style>
+    body {
+      font-family: 'Inter', system-ui, -apple-system, sans-serif;
+      background-color: #f8fafc;
+    }
+    .font-mono {
+      font-family: 'JetBrains Mono', monospace;
+    }
+    /* Hide scrollbars but keep functionality */
+    .no-scrollbar::-webkit-scrollbar {
+      display: none;
+    }
+    .no-scrollbar {
+      -ms-overflow-style: none;
+      scrollbar-width: none;
+    }
+  </style>
+</head>
+<body class="p-6 md:p-12 min-h-screen flex items-start justify-center">
+  <div class="space-y-6 mx-auto w-full" style="max-width: ${colWidths.manager + colWidths.name + colWidths.fycc + colWidths.case + 24}px;">
+    
+    <!-- Top Action Bar for Offline page -->
+    <div class="flex justify-between items-center bg-white border border-slate-200 px-6 py-4 rounded-3xl shadow-sm no-print">
+      <span class="text-sm font-bold text-slate-600">📄 離線互動報表網頁</span>
+      <button onclick="window.print()" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs rounded-xl transition-all shadow-sm">
+        🖨️ 列印 / 另存 PDF
+      </button>
+    </div>
+
+    <div class="${isMultiTeam ? 'bg-[#FFB020]' : 'bg-[#5AC8FA]'} p-1 shadow-2xl rounded-sm overflow-hidden">
+      <div class="${isMultiTeam ? 'bg-[#FFB020]' : 'bg-[#5AC8FA]'} relative border-[6px] ${outerBorderClass} rounded-xl overflow-hidden">
+        
+        <!-- Header Section -->
+        <div class="flex items-stretch h-32 border-b-2 border-black/10">
+          <div class="flex-1 bg-white m-3 rounded-2xl border-4 ${outerBorderClass} shadow-inner flex flex-col items-center justify-center relative overflow-hidden">
+            <div class="absolute top-0 left-0 w-8 h-8 rounded-full border-4 border-yellow-400 -m-3"></div>
+            <h3 class="text-3xl font-black text-black tracking-tighter italic">DAILY REPORT</h3>
+            <div class="bg-[#F27D26] text-white px-6 py-0.5 rounded-full text-[10px] font-bold mt-2 shadow-md border-white/30 border">
+              每日及時更新準時送達
+            </div>
+          </div>
+          
+          <!-- Logo Section -->
+          <div class="w-32 bg-white m-3 rounded-2xl border-4 ${outerBorderClass} shadow-inner flex items-center justify-center flex-shrink-0 relative overflow-hidden">
+            ${logoImgHtml}
+          </div>
+        </div>
+
+        <!-- Info Row -->
+        <div class="bg-white px-4 py-1.5 flex justify-between items-center text-[11px] border-b border-gray-200">
+          <span class="font-semibold text-slate-700">Source by Daily Submission Report</span>
+          <div class="flex gap-12" style="display: flex; gap: 3rem;">
+             <span class="font-bold text-slate-800 text-lg">as of</span>
+             <span class="font-black text-slate-900 text-lg">${reportDate}</span>
+          </div>
+        </div>
+
+        <!-- Table area -->
+        <div class="bg-white overflow-x-auto w-full no-scrollbar">
+          <table class="text-left border-collapse table-fixed select-none" style="width: ${colWidths.manager + colWidths.name + colWidths.fycc + colWidths.case}px;">
+            <colgroup>
+              <col style="width: ${colWidths.manager}px;" />
+              <col style="width: ${colWidths.name}px;" />
+              <col style="width: ${colWidths.fycc}px;" />
+              <col style="width: ${colWidths.case}px;" />
+            </colgroup>
+            <thead>
+              <tr class="text-white ${headerBgClass}">
+                <th class="relative px-3 border-r ${outerBorderClass} font-black" style="padding-top: ${rowPadding}px; padding-bottom: ${rowPadding}px; font-size: ${fontSize}px;">
+                  <div class="truncate">Manager</div>
+                </th>
+                <th class="relative px-3 border-r ${outerBorderClass} font-black" style="padding-top: ${rowPadding}px; padding-bottom: ${rowPadding}px; font-size: ${fontSize}px;">
+                  <div class="truncate">Name (HKID)</div>
+                </th>
+                <th class="relative px-3 border-r ${outerBorderClass} text-center font-black" style="padding-top: ${rowPadding}px; padding-bottom: ${rowPadding}px; font-size: ${fontSize}px;">
+                  <div class="truncate">FYCC</div>
+                </th>
+                <th class="relative px-3 font-black text-center" style="padding-top: ${rowPadding}px; padding-bottom: ${rowPadding}px; font-size: ${fontSize}px;">
+                  <div class="truncate">Case</div>
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              ${tableRowsHtml}
+              ${grandTotalsHtml}
+            </tbody>
+          </table>
+        </div>
+
+      </div>
+    </div>
+  </div>
+  
+  <style>
+    @media print {
+      .no-print {
+        display: none !important;
+      }
+      body {
+        background-color: white !important;
+        padding: 0 !important;
+      }
+    }
+  </style>
+</body>
+</html>`;
+
+      const blob = new Blob([standaloneHtml], { type: 'text/html;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.setAttribute("href", url);
+      link.setAttribute("download", `DAILY_REPORT_${reportDate.replace(/\//g, '-')}.html`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    } catch (err) {
+      console.error('Failed to download standalone HTML:', err);
+      setError('下載離線版 HTML 失敗，請重試。');
+    }
+  };
+
   // URL query parameter check on mount
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const shareParam = params.get('share');
-    if (shareParam) {
+    const dataParam = params.get('data');
+    
+    if (dataParam) {
+      try {
+        setIsViewerMode(true);
+        setIsViewerLoading(true);
+        setError(null);
+        
+        // Decode the data
+        const decoded = decodeData(dataParam);
+        
+        // Set all properties directly from the decoded URL data
+        setReportData(decoded.reportData);
+        setReportDate(decoded.date || decoded.reportDate || '');
+        if (decoded.logo) {
+          setLogoUrl(decoded.logo);
+        }
+        if (decoded.selectedTeams) {
+          setSelectedTeams(decoded.selectedTeams);
+        }
+        if (decoded.fontSize) {
+          setFontSize(decoded.fontSize);
+        }
+        if (decoded.rowPadding) {
+          setRowPadding(decoded.rowPadding);
+        }
+        if (decoded.colWidths) {
+          setColWidths(decoded.colWidths);
+        }
+        
+        // Set viewer states to a static marker
+        setViewerShareId('static');
+        setViewerAvailableDates([decoded.date || decoded.reportDate || '']);
+        setViewerSelectedDate(decoded.date || decoded.reportDate || '');
+        setActiveView('reports');
+        setIsViewerLoading(false);
+      } catch (err) {
+        console.error('Failed to parse share link data:', err);
+        setError('解析分享連結數據失敗，連結可能不完整或損毀。');
+        setIsViewerLoading(false);
+      }
+    } else if (shareParam) {
       setIsViewerMode(true);
       setViewerShareId(shareParam);
       loadViewerWorkspace(shareParam, params.get('date'));
@@ -971,29 +1271,98 @@ export default function App() {
 
               {/* Publish & Share Card (Only for admin) */}
               {!isViewerMode && (
-                <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-sm space-y-4">
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                    <div>
-                      <h4 className="text-base font-extrabold text-slate-800 flex items-center gap-2">
-                        <Share2 className="w-5 h-5 text-[#419CD8]" />
-                        發佈並產生分享連結 (Publish & Share)
-                      </h4>
-                      <p className="text-xs text-slate-500 mt-1">
-                        發佈後會建立一個專屬的唯讀儀表板連結，可以分享給其他人，且支援「選擇日期看」功能！
-                      </p>
-                    </div>
-                    <button
-                      onClick={publishCurrentDashboard}
-                      disabled={isPublishing}
-                      className={cn(
-                        "px-5 py-2.5 rounded-xl font-bold text-xs text-white shadow-md transition-all active:scale-95 cursor-pointer flex items-center gap-2",
-                        isPublishing ? "bg-slate-400 cursor-not-allowed" : "bg-gradient-to-r from-[#419CD8] to-blue-500 hover:from-[#3587bd] hover:to-blue-600"
-                      )}
-                    >
-                      {isPublishing ? "正在發佈..." : shareId ? "🔄 更新發佈報表" : "🚀 首次發佈並產生連結"}
-                    </button>
+                <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-sm space-y-6">
+                  <div>
+                    <h4 className="text-lg font-black text-slate-800 flex items-center gap-2">
+                      <Share2 className="w-5.5 h-5.5 text-[#419CD8]" />
+                      發佈與分享中心 (Publish & Share Center)
+                    </h4>
+                    <p className="text-xs text-slate-500 mt-1">
+                      選擇適合您部署環境的發佈方式。若使用 GitHub Pages 等純靜態網頁託管，請優先選擇<b>方法二</b>或<b>方法三</b>。
+                    </p>
                   </div>
 
+                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+                    {/* Method 1: Cloud DB */}
+                    <div className="bg-slate-50/50 border border-slate-200/80 rounded-2xl p-5 flex flex-col justify-between space-y-4 hover:shadow-sm transition-shadow">
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-2">
+                          <span className="flex items-center justify-center w-5 h-5 rounded-full bg-blue-100 text-[#419CD8] text-[10px] font-black">1</span>
+                          <h5 className="text-sm font-black text-slate-800">雲端伺服器發佈</h5>
+                        </div>
+                        <p className="text-xs text-slate-500 leading-relaxed">
+                          將報表同步上傳至後端伺服器資料庫。支援多日期歷史存檔，讀者點開連結後可下拉選單查看不同日期的歷史報告。
+                        </p>
+                        <div className="text-[10px] text-amber-600 bg-amber-50 px-2.5 py-1 rounded-md font-bold inline-block">
+                          ⚠️ 限制：靜態網頁（如 GitHub Pages）不支援此方式。
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={publishCurrentDashboard}
+                        disabled={isPublishing}
+                        className={cn(
+                          "w-full py-2.5 rounded-xl font-bold text-xs text-white shadow-sm transition-all active:scale-95 cursor-pointer flex items-center justify-center gap-2",
+                          isPublishing ? "bg-slate-400 cursor-not-allowed" : "bg-gradient-to-r from-[#419CD8] to-blue-500 hover:from-[#3587bd] hover:to-blue-600"
+                        )}
+                      >
+                        {isPublishing ? "正在發佈..." : shareId ? "🔄 更新雲端報表" : "🚀 發佈至雲端伺服器"}
+                      </button>
+                    </div>
+
+                    {/* Method 2: Static URL Encoding */}
+                    <div className="bg-[#419CD8]/5 border border-[#419CD8]/20 rounded-2xl p-5 flex flex-col justify-between space-y-4 hover:shadow-sm transition-shadow">
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-2">
+                          <span className="flex items-center justify-center w-5 h-5 rounded-full bg-[#419CD8]/10 text-[#419CD8] text-[10px] font-black">2</span>
+                          <h5 className="text-sm font-black text-slate-800 flex items-center gap-1.5">
+                            網址數據封裝分享
+                            <span className="bg-[#419CD8] text-white text-[9px] font-black px-1.5 py-0.5 rounded-md scale-90">免伺服器</span>
+                          </h5>
+                        </div>
+                        <p className="text-xs text-slate-500 leading-relaxed">
+                          將目前所有的報表數據、Logo 圖片與排版設定經過安全壓縮，<b>直接封裝在分享網址中</b>。100% 離線可用，讀者點開即還原相同畫面。
+                        </p>
+                        <div className="text-[10px] text-emerald-600 bg-emerald-50 px-2.5 py-1 rounded-md font-bold inline-block">
+                          💡 最推薦：完全支援 GitHub Pages 靜態網站！
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={generateStaticShareLink}
+                        className="w-full py-2.5 rounded-xl font-bold text-xs bg-slate-800 hover:bg-slate-700 text-white shadow-sm transition-all active:scale-95 cursor-pointer flex items-center justify-center gap-2"
+                      >
+                        <Globe className="w-3.5 h-3.5" />
+                        🔗 產生靜態封裝分享網址
+                      </button>
+                    </div>
+
+                    {/* Method 3: Standalone Offline HTML */}
+                    <div className="bg-slate-50/50 border border-slate-200/80 rounded-2xl p-5 flex flex-col justify-between space-y-4 hover:shadow-sm transition-shadow">
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-2">
+                          <span className="flex items-center justify-center w-5 h-5 rounded-full bg-slate-200 text-slate-600 text-[10px] font-black">3</span>
+                          <h5 className="text-sm font-black text-slate-800">下載離線互動 HTML</h5>
+                        </div>
+                        <p className="text-xs text-slate-500 leading-relaxed">
+                          將目前的精美報表打包編譯成<b>單一的 HTML 網頁檔案</b>。下載後任何人雙擊皆可在瀏覽器中開啟（離線、免網路，且能保持完美縮放）。
+                        </p>
+                        <div className="text-[10px] text-indigo-600 bg-indigo-50 px-2.5 py-1 rounded-md font-bold inline-block">
+                          💼 適合用作 Email 附件或本機留底存檔。
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={downloadStandaloneHtml}
+                        className="w-full py-2.5 rounded-xl font-bold text-xs bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-200 shadow-sm transition-all active:scale-95 cursor-pointer flex items-center justify-center gap-2"
+                      >
+                        <Download className="w-3.5 h-3.5" />
+                        💾 下載獨立 HTML 檔案
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Show Server DB Success URL */}
                   {publishSuccessMessage && (
                     <motion.div 
                       initial={{ opacity: 0, y: -10 }}
@@ -1002,17 +1371,18 @@ export default function App() {
                     >
                       <div className="space-y-1">
                         <span className="text-xs font-black text-emerald-800 flex items-center gap-1.5">
-                          <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                          報表發佈成功！此連結已整合您的 Logo 數據，且支援歷史日期選擇。
+                          <CheckCircle2 className="w-4 h-4 text-emerald-600 animate-bounce" />
+                          雲端報表發佈成功！此連結支援歷史日期選擇切換。
                         </span>
-                        <div className="text-[11px] text-slate-500 font-mono select-all truncate max-w-lg">
+                        <div className="text-[11px] text-slate-500 font-mono select-all truncate max-w-lg md:max-w-xl">
                           {publishSuccessMessage}
                         </div>
                       </div>
                       <button
+                        type="button"
                         onClick={() => copyToClipboard(publishSuccessMessage)}
                         className={cn(
-                          "px-4 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 cursor-pointer",
+                          "px-4 py-2 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-1.5 cursor-pointer flex-shrink-0",
                           copied ? "bg-emerald-600 text-white" : "bg-white border border-emerald-300 text-emerald-700 hover:bg-emerald-50"
                         )}
                       >
@@ -1025,6 +1395,51 @@ export default function App() {
                           <>
                             <Copy className="w-3.5 h-3.5" />
                             複製連結
+                          </>
+                        )}
+                      </button>
+                    </motion.div>
+                  )}
+
+                  {/* Show Static URL Success URL */}
+                  {staticShareUrl && (
+                    <motion.div 
+                      initial={{ opacity: 0, y: -10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className="bg-[#419CD8]/10 border border-[#419CD8]/30 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center gap-3 justify-between"
+                    >
+                      <div className="space-y-1">
+                        <span className="text-xs font-black text-[#419CD8] flex items-center gap-1.5">
+                          <CheckCircle2 className="w-4 h-4 text-[#419CD8]" />
+                          靜態封裝連結產生成功！已包裝所有數據、自訂樣式與 Logo！
+                        </span>
+                        <div className="text-[11px] text-slate-500 font-mono select-all truncate max-w-lg md:max-w-xl">
+                          {staticShareUrl}
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const success = copyToClipboard(staticShareUrl);
+                          if (success) {
+                            setCopiedStatic(true);
+                            setTimeout(() => setCopiedStatic(false), 2000);
+                          }
+                        }}
+                        className={cn(
+                          "px-4 py-2 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-1.5 cursor-pointer flex-shrink-0",
+                          copiedStatic ? "bg-[#419CD8] text-white" : "bg-white border border-[#419CD8]/30 text-[#419CD8] hover:bg-[#419CD8]/5"
+                        )}
+                      >
+                        {copiedStatic ? (
+                          <>
+                            <Check className="w-3.5 h-3.5" />
+                            已複製
+                          </>
+                        ) : (
+                          <>
+                            <Copy className="w-3.5 h-3.5" />
+                            複製靜態連結
                           </>
                         )}
                       </button>
@@ -1098,7 +1513,27 @@ export default function App() {
 
                   {/* Info Row */}
                   <div className="bg-white px-4 py-1.5 flex justify-between items-center text-[11px] border-b border-gray-200">
-                    <span className="font-semibold text-slate-700">Source by Daily Submission Report</span>
+                    <div className="flex items-center gap-3">
+                      <span className="font-semibold text-slate-700">Source by Daily Submission Report</span>
+                      <button
+                        type="button"
+                        onClick={() => setIsLayoutControlVisible(!isLayoutControlVisible)}
+                        className="flex items-center gap-1.5 bg-slate-50 hover:bg-slate-100 text-slate-600 border border-slate-200 px-2.5 py-0.5 rounded-lg text-[10px] font-black transition-all shadow-sm cursor-pointer select-none"
+                        title="顯示或隱藏自助調整字型、行距與欄寬重設之排版面板"
+                      >
+                        {isLayoutControlVisible ? (
+                          <>
+                            <EyeOff className="w-3 h-3 text-slate-500" />
+                            隱藏排版面板
+                          </>
+                        ) : (
+                          <>
+                            <Eye className="w-3 h-3 text-slate-500" />
+                            顯示排版面板
+                          </>
+                        )}
+                      </button>
+                    </div>
                     <div className="flex gap-12">
                        <span className="font-bold text-slate-800 text-lg">as of</span>
                        <span className="font-black text-slate-900 text-lg">{reportDate}</span>
@@ -1106,59 +1541,62 @@ export default function App() {
                   </div>
 
                   {/* Help Tip & Control Panel */}
-                  <div className="bg-slate-50 p-5 border-b border-slate-200">
-                    <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-4">
-                      <div className="flex items-center gap-2 text-sm text-slate-700 font-medium">
-                        <span className="text-base">💡</span>
-                        <span>
-                          <b>自助排版面板</b>：您可以<b>按住表頭邊緣拖曳</b>（左右調寬、上下調高），或使用滑桿設定：
-                        </span>
-                      </div>
-                      
-                      {/* Sliders Container */}
-                      <div className="flex flex-wrap items-center gap-5 text-xs font-semibold text-slate-600 bg-white px-4 py-2.5 rounded-xl shadow-sm border border-slate-100">
-                        {/* Font Size Slider */}
-                        <div className="flex items-center gap-1.5">
-                          <span>🔤 字體大小:</span>
-                          <input 
-                            type="range" 
-                            min="14" 
-                            max="40" 
-                            value={fontSize} 
-                            onChange={(e) => setFontSize(parseInt(e.target.value))}
-                            className={cn("w-20 cursor-pointer", theme.btnAccent)}
-                          />
-                          <span className="text-slate-400 font-mono w-7">{fontSize}px</span>
+                  {isLayoutControlVisible && (
+                    <div className="bg-slate-50 p-5 border-b border-slate-200">
+                      <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-4">
+                        <div className="flex items-center gap-2 text-sm text-slate-700 font-medium">
+                          <span className="text-base">💡</span>
+                          <span>
+                            <b>自助排版面板</b>：您可以<b>按住表頭邊緣拖曳</b>（左右調寬、上下調高），或使用滑桿設定：
+                          </span>
                         </div>
+                        
+                        {/* Sliders Container */}
+                        <div className="flex flex-wrap items-center gap-5 text-xs font-semibold text-slate-600 bg-white px-4 py-2.5 rounded-xl shadow-sm border border-slate-100">
+                          {/* Font Size Slider */}
+                          <div className="flex items-center gap-1.5">
+                            <span>🔤 字體大小:</span>
+                            <input 
+                              type="range" 
+                              min="14" 
+                              max="40" 
+                              value={fontSize} 
+                              onChange={(e) => setFontSize(parseInt(e.target.value))}
+                              className={cn("w-20 cursor-pointer", theme.btnAccent)}
+                            />
+                            <span className="text-slate-400 font-mono w-7">{fontSize}px</span>
+                          </div>
 
-                        {/* Row Height Slider */}
-                        <div className="flex items-center gap-1.5">
-                          <span>↕️ 行高(間距):</span>
-                          <input 
-                            type="range" 
-                            min="4" 
-                            max="40" 
-                            value={rowPadding} 
-                            onChange={(e) => setRowPadding(parseInt(e.target.value))}
-                            className={cn("w-20 cursor-pointer", theme.btnAccent)}
-                          />
-                          <span className="text-slate-400 font-mono w-7">{rowPadding}px</span>
+                          {/* Row Height Slider */}
+                          <div className="flex items-center gap-1.5">
+                            <span>↕️ 行高(間距):</span>
+                            <input 
+                              type="range" 
+                              min="4" 
+                              max="40" 
+                              value={rowPadding} 
+                              onChange={(e) => setRowPadding(parseInt(e.target.value))}
+                              className={cn("w-20 cursor-pointer", theme.btnAccent)}
+                            />
+                            <span className="text-slate-400 font-mono w-7">{rowPadding}px</span>
+                          </div>
+
+                          {/* Reset Button */}
+                          <button 
+                            type="button"
+                            onClick={() => {
+                              setColWidths({ manager: 240, name: 290, fycc: 190, case: 140 });
+                              setRowPadding(16);
+                              setFontSize(24);
+                            }}
+                            className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-2.5 py-1 rounded text-[10px] font-bold transition-all active:scale-95"
+                          >
+                            重設樣式
+                          </button>
                         </div>
-
-                        {/* Reset Button */}
-                        <button 
-                          onClick={() => {
-                            setColWidths({ manager: 240, name: 290, fycc: 190, case: 140 });
-                            setRowPadding(16);
-                            setFontSize(24);
-                          }}
-                          className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-2.5 py-1 rounded text-[10px] font-bold transition-all active:scale-95"
-                        >
-                          重設樣式
-                        </button>
                       </div>
                     </div>
-                  </div>
+                  )}
 
                   {/* Table area */}
                   <div className="bg-white overflow-x-auto w-full no-scrollbar">
