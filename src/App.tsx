@@ -190,7 +190,12 @@ export default function App() {
       });
       
       if (!response.ok) {
-        throw new Error('發佈失敗，請稍後重試。');
+        let errMsg = '發佈失敗，請稍後重試。';
+        try {
+          const errData = await response.json();
+          if (errData && errData.error) errMsg = errData.error;
+        } catch (_) {}
+        throw new Error(errMsg);
       }
       
       const result = await response.json();
