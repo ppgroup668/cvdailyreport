@@ -15,7 +15,12 @@ import {
   CheckCircle2,
   ChevronRight,
   TrendingUp,
-  Users
+  Users,
+  Share2,
+  Copy,
+  Check,
+  ExternalLink,
+  Calendar
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from './lib/utils';
@@ -50,6 +55,169 @@ export default function App() {
   // Self-adjust row padding (height) and font size
   const [rowPadding, setRowPadding] = useState(16); // vertical padding in pixels (matches py-4)
   const [fontSize, setFontSize] = useState(24);     // font size in pixels (default 24px)
+
+  // --- Sharing & Viewer States ---
+  const [shareId, setShareId] = useState<string | null>(() => {
+    return localStorage.getItem('sales_dashboard_share_id') || null;
+  });
+  const [isViewerMode, setIsViewerMode] = useState(false);
+  const [viewerShareId, setViewerShareId] = useState<string | null>(null);
+  const [viewerAvailableDates, setViewerAvailableDates] = useState<string[]>([]);
+  const [viewerSelectedDate, setViewerSelectedDate] = useState<string>('');
+  const [isViewerLoading, setIsViewerLoading] = useState(false);
+  const [isPublishing, setIsPublishing] = useState(false);
+  const [publishSuccessMessage, setPublishSuccessMessage] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  // Helper to load date-specific viewer data
+  const loadViewerReportForDate = async (targetShareId: string, targetDate: string) => {
+    setIsViewerLoading(true);
+    try {
+      const res = await fetch(`/api/dashboard/share/${targetShareId}/date/${targetDate}`);
+      if (!res.ok) {
+        throw new Error('找不到指定日期的報表數據。');
+      }
+      const data = await res.json();
+      setReportData(data.reportData);
+      setReportDate(data.date);
+      setActiveView('reports');
+    } catch (err: any) {
+      setError(err.message || '載入日期數據失敗。');
+    } finally {
+      setIsViewerLoading(false);
+    }
+  };
+
+  // Helper to load whole workspace
+  const loadViewerWorkspace = async (targetShareId: string, targetDate: string | null) => {
+    setIsViewerLoading(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/dashboard/share/${targetShareId}`);
+      if (!res.ok) {
+        throw new Error('找不到該分享的儀表板。');
+      }
+      const data = await res.json();
+      if (data.logo) {
+        setLogoUrl(data.logo);
+      }
+      setViewerAvailableDates(data.availableDates);
+      
+      let selectedD = targetDate;
+      if (!selectedD || !data.availableDates.includes(selectedD)) {
+        selectedD = data.availableDates[0] || '';
+      }
+      
+      setViewerSelectedDate(selectedD);
+      
+      if (selectedD) {
+        await loadViewerReportForDate(targetShareId, selectedD);
+      } else {
+        setError('該儀表板尚無發佈任何日期數據。');
+      }
+    } catch (err: any) {
+      setError(err.message || '載入分享儀表板失敗。');
+    } finally {
+      setIsViewerLoading(false);
+    }
+  };
+
+  // Viewer date changer
+  const handleViewerDateChange = async (newDate: string) => {
+    if (!viewerShareId) return;
+    setViewerSelectedDate(newDate);
+    const newUrl = `${window.location.pathname}?share=${viewerShareId}&date=${newDate}`;
+    window.history.pushState({ path: newUrl }, '', newUrl);
+    await loadViewerReportForDate(viewerShareId, newDate);
+  };
+
+  // Exit viewer mode
+  const handleExitViewer = () => {
+    setIsViewerMode(false);
+    setViewerShareId(null);
+    setReportData(null);
+    setLogoUrl(null);
+    setActiveView('dashboard');
+    const newUrl = window.location.pathname;
+    window.history.pushState({ path: newUrl }, '', newUrl);
+  };
+
+  // Helper to copy text to clipboard with iframe-safe fallback
+  const copyToClipboard = (text: string) => {
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text);
+      } else {
+        const input = document.createElement('input');
+        input.value = text;
+        document.body.appendChild(input);
+        input.select();
+        document.execCommand('copy');
+        document.body.removeChild(input);
+      }
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+      return true;
+    } catch (err) {
+      console.error('Failed to copy: ', err);
+      return false;
+    }
+  };
+
+  // Publish / Share currently loaded report data
+  const publishCurrentDashboard = async () => {
+    if (!reportData) {
+      setError('沒有可發佈的報表數據。');
+      return;
+    }
+    setIsPublishing(true);
+    setError(null);
+    setPublishSuccessMessage(null);
+    setCopied(false);
+    
+    try {
+      const response = await fetch('/api/dashboard/publish', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          shareId: shareId,
+          date: reportDate,
+          logo: logoUrl,
+          reportData: reportData,
+          grandTotals: grandTotals,
+          selectedTeams: selectedTeams
+        })
+      });
+      
+      if (!response.ok) {
+        throw new Error('發佈失敗，請稍後重試。');
+      }
+      
+      const result = await response.json();
+      if (result.success) {
+        setShareId(result.shareId);
+        localStorage.setItem('sales_dashboard_share_id', result.shareId);
+        
+        const shareLink = `${window.location.origin}/?share=${result.shareId}&date=${result.date}`;
+        setPublishSuccessMessage(shareLink);
+      }
+    } catch (err: any) {
+      setError(err.message || '發佈報表時出錯。');
+    } finally {
+      setIsPublishing(false);
+    }
+  };
+
+  // URL query parameter check on mount
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const shareParam = params.get('share');
+    if (shareParam) {
+      setIsViewerMode(true);
+      setViewerShareId(shareParam);
+      loadViewerWorkspace(shareParam, params.get('date'));
+    }
+  }, []);
 
   const handleResizeStart = (col: 'manager' | 'name' | 'fycc' | 'case', e: React.MouseEvent) => {
     e.preventDefault();
@@ -147,8 +315,12 @@ export default function App() {
   const handleLogoUpload = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      const url = URL.createObjectURL(file);
-      setLogoUrl(url);
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const base64String = reader.result as string;
+        setLogoUrl(base64String);
+      };
+      reader.readAsDataURL(file);
     }
   };
 
@@ -426,15 +598,33 @@ export default function App() {
 
   return (
     <div className="flex flex-col min-h-screen bg-[#F8FAFC] font-sans pb-20">
+      {/* Viewer Mode Banner */}
+      {isViewerMode && (
+        <div className="bg-gradient-to-r from-blue-600 to-[#419CD8] text-white text-xs font-bold px-6 py-2.5 flex items-center justify-between shadow-md">
+          <div className="flex items-center gap-2">
+            <span className="flex h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
+            <span>您正在瀏覽唯讀分享的「銷售業績儀表板」</span>
+          </div>
+          <button
+            onClick={handleExitViewer}
+            className="bg-white/20 hover:bg-white/30 text-white px-3 py-1 rounded-md text-[10px] font-bold transition-all border border-white/20 uppercase cursor-pointer"
+          >
+            建立我的報表 ➜
+          </button>
+        </div>
+      )}
+
       {/* Header */}
       <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-6 flex-shrink-0 z-10 shadow-sm">
         <div className="flex items-center gap-3">
           <div className="w-9 h-9 bg-[#419CD8] rounded-lg flex items-center justify-center shadow-lg shadow-blue-100">
             <LayoutDashboard className="w-5 h-5 text-white" />
           </div>
-          <h1 className="text-xl font-bold text-slate-800 tracking-tight">每日銷售報告系統</h1>
+          <h1 className="text-xl font-bold text-slate-800 tracking-tight">
+            {isViewerMode ? "銷售分享儀表板" : "每日銷售報告系統"}
+          </h1>
         </div>
-        {reportData && (
+        {reportData && !isViewerMode && (
           <div className="flex bg-slate-100 p-1 rounded-xl">
             <button
               onClick={() => setActiveView('dashboard')}
@@ -465,8 +655,15 @@ export default function App() {
       <main className="flex-1 p-4 md:p-8">
         <div className="max-w-5xl mx-auto space-y-8">
           
-          {/* Upload Section */}
-          {activeView === 'dashboard' && (
+          {isViewerLoading ? (
+            <div className="flex flex-col items-center justify-center py-24 space-y-4 bg-white border border-slate-200 rounded-3xl shadow-sm">
+              <div className="w-12 h-12 border-4 border-slate-200 border-t-[#419CD8] rounded-full animate-spin"></div>
+              <p className="text-sm font-bold text-slate-600 animate-pulse">正在載入專屬分享數據，請稍候...</p>
+            </div>
+          ) : (
+            <>
+              {/* Upload Section */}
+              {activeView === 'dashboard' && !isViewerMode && (
             <section className="bg-white rounded-3xl border border-slate-200 shadow-sm p-8">
             <div className="mb-8">
               <h2 className="text-2xl font-extrabold text-slate-800">上傳原始數據</h2>
@@ -691,17 +888,102 @@ export default function App() {
               className="space-y-6 mx-auto transition-all duration-300"
               style={{ maxWidth: `${totalTableWidth + 24}px`, width: '100%' }}
             >
-              <div className="flex justify-between items-center bg-white border border-slate-200 px-6 py-4 rounded-3xl shadow-sm">
-                <button
-                  onClick={() => setActiveView('dashboard')}
-                  className="px-5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-sm rounded-xl transition-all flex items-center gap-2 border border-slate-200 hover:scale-[1.02]"
-                >
-                  ← 返回上傳數據頁面
-                </button>
-                <div className="text-xs text-slate-500 font-medium">
-                  可隨時點擊返回修改數據或重新上傳
+              {isViewerMode ? (
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white border border-slate-200 px-6 py-4 rounded-3xl shadow-sm">
+                  <div className="flex items-center gap-2">
+                    <Calendar className="w-5 h-5 text-[#419CD8]" />
+                    <span className="text-sm font-extrabold text-slate-700">選擇報告日期 (Date)：</span>
+                    <select
+                      value={viewerSelectedDate}
+                      onChange={(e) => handleViewerDateChange(e.target.value)}
+                      className="bg-slate-50 hover:bg-slate-100 border border-slate-300 rounded-xl px-4 py-2 text-sm font-black text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#419CD8] cursor-pointer"
+                    >
+                      {viewerAvailableDates.map(date => (
+                        <option key={date} value={date}>{date}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="text-xs text-slate-400 font-medium italic">
+                    唯讀分享版 • 共 {viewerAvailableDates.length} 個歷史日期
+                  </div>
                 </div>
-              </div>
+              ) : (
+                <div className="flex justify-between items-center bg-white border border-slate-200 px-6 py-4 rounded-3xl shadow-sm">
+                  <button
+                    onClick={() => setActiveView('dashboard')}
+                    className="px-5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-sm rounded-xl transition-all flex items-center gap-2 border border-slate-200 hover:scale-[1.02] cursor-pointer"
+                  >
+                    ← 返回上傳數據頁面
+                  </button>
+                  <div className="text-xs text-slate-500 font-medium">
+                    可隨時點擊返回修改數據或重新上傳
+                  </div>
+                </div>
+              )}
+
+              {/* Publish & Share Card (Only for admin) */}
+              {!isViewerMode && (
+                <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-sm space-y-4">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                    <div>
+                      <h4 className="text-base font-extrabold text-slate-800 flex items-center gap-2">
+                        <Share2 className="w-5 h-5 text-[#419CD8]" />
+                        發佈並產生分享連結 (Publish & Share)
+                      </h4>
+                      <p className="text-xs text-slate-500 mt-1">
+                        發佈後會建立一個專屬的唯讀儀表板連結，可以分享給其他人，且支援「選擇日期看」功能！
+                      </p>
+                    </div>
+                    <button
+                      onClick={publishCurrentDashboard}
+                      disabled={isPublishing}
+                      className={cn(
+                        "px-5 py-2.5 rounded-xl font-bold text-xs text-white shadow-md transition-all active:scale-95 cursor-pointer flex items-center gap-2",
+                        isPublishing ? "bg-slate-400 cursor-not-allowed" : "bg-gradient-to-r from-[#419CD8] to-blue-500 hover:from-[#3587bd] hover:to-blue-600"
+                      )}
+                    >
+                      {isPublishing ? "正在發佈..." : shareId ? "🔄 更新發佈報表" : "🚀 首次發佈並產生連結"}
+                    </button>
+                  </div>
+
+                  {publishSuccessMessage && (
+                    <motion.div 
+                      initial={{ opacity: 0, y: -10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center gap-3 justify-between"
+                    >
+                      <div className="space-y-1">
+                        <span className="text-xs font-black text-emerald-800 flex items-center gap-1.5">
+                          <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                          報表發佈成功！此連結已整合您的 Logo 數據，且支援歷史日期選擇。
+                        </span>
+                        <div className="text-[11px] text-slate-500 font-mono select-all truncate max-w-lg">
+                          {publishSuccessMessage}
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => copyToClipboard(publishSuccessMessage)}
+                        className={cn(
+                          "px-4 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 cursor-pointer",
+                          copied ? "bg-emerald-600 text-white" : "bg-white border border-emerald-300 text-emerald-700 hover:bg-emerald-50"
+                        )}
+                      >
+                        {copied ? (
+                          <>
+                            <Check className="w-3.5 h-3.5" />
+                            已複製
+                          </>
+                        ) : (
+                          <>
+                            <Copy className="w-3.5 h-3.5" />
+                            複製連結
+                          </>
+                        )}
+                      </button>
+                    </motion.div>
+                  )}
+                </div>
+              )}
 
               <div className="bg-[#5AC8FA] p-1 shadow-2xl rounded-sm overflow-hidden">
                 <div className="bg-[#5AC8FA] relative border-[6px] border-[#419CD8] rounded-xl overflow-hidden">
@@ -725,24 +1007,31 @@ export default function App() {
                             className="max-w-full max-h-full object-contain" 
                             referrerPolicy="no-referrer" 
                           />
-                          <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-1.5 z-10">
-                            <label className="cursor-pointer bg-[#419CD8] hover:bg-[#3587bd] text-white text-[10px] font-bold px-2 py-1 rounded shadow-sm transition-colors text-center">
-                              更換 LOGO
-                              <input 
-                                type="file" 
-                                accept="image/*" 
-                                className="hidden" 
-                                onChange={handleLogoUpload} 
-                              />
-                            </label>
-                            <button 
-                              type="button"
-                              onClick={(e) => { e.stopPropagation(); setLogoUrl(null); }}
-                              className="bg-red-500 hover:bg-red-600 text-white text-[10px] font-bold px-2 py-1 rounded shadow-sm transition-colors text-center"
-                            >
-                              移除 LOGO
-                            </button>
-                          </div>
+                          {!isViewerMode && (
+                            <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-1.5 z-10">
+                              <label className="cursor-pointer bg-[#419CD8] hover:bg-[#3587bd] text-white text-[10px] font-bold px-2 py-1 rounded shadow-sm transition-colors text-center">
+                                更換 LOGO
+                                <input 
+                                  type="file" 
+                                  accept="image/*" 
+                                  className="hidden" 
+                                  onChange={handleLogoUpload} 
+                                />
+                              </label>
+                              <button 
+                                type="button"
+                                onClick={(e) => { e.stopPropagation(); setLogoUrl(null); }}
+                                className="bg-red-500 hover:bg-red-600 text-white text-[10px] font-bold px-2 py-1 rounded shadow-sm transition-colors text-center"
+                              >
+                                移除 LOGO
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      ) : isViewerMode ? (
+                        <div className="flex flex-col items-center justify-center text-center p-2">
+                          <TrendingUp className="w-6 h-6 text-[#419CD8] mb-1" />
+                          <span className="text-[10px] font-black text-[#419CD8] tracking-widest uppercase">SALES REPORT</span>
                         </div>
                       ) : (
                         <label className="flex flex-col items-center justify-center w-full h-full cursor-pointer hover:bg-slate-50 transition-colors p-2 text-center select-none">
@@ -998,6 +1287,8 @@ export default function App() {
                 </div>
               </div>
             </motion.div>
+          )}
+            </>
           )}
         </div>
       </main>
