@@ -47,6 +47,10 @@ export default function App() {
     case: 140
   });
 
+  // Self-adjust row padding (height) and font size
+  const [rowPadding, setRowPadding] = useState(16); // vertical padding in pixels (matches py-4)
+  const [fontSize, setFontSize] = useState(24);     // font size in pixels (default 24px)
+
   const handleResizeStart = (col: 'manager' | 'name' | 'fycc' | 'case', e: React.MouseEvent) => {
     e.preventDefault();
     const startX = e.clientX;
@@ -58,6 +62,26 @@ export default function App() {
         ...prev,
         [col]: Math.max(80, startWidth + deltaX)
       }));
+    };
+    
+    const handleMouseUp = () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+    
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+  };
+
+  const handleRowHeightResizeStart = (e: React.MouseEvent) => {
+    e.preventDefault();
+    const startY = e.clientY;
+    const startPadding = rowPadding;
+    
+    const handleMouseMove = (moveEvent: MouseEvent) => {
+      const deltaY = moveEvent.clientY - startY;
+      // top + bottom padding change (scaled to make dragging smooth)
+      setRowPadding(Math.max(4, startPadding + Math.round(deltaY / 2)));
     };
     
     const handleMouseUp = () => {
@@ -396,6 +420,10 @@ export default function App() {
     }), { fyc: 0, cases: 0 });
   }, [reportData]);
 
+  const totalTableWidth = useMemo(() => {
+    return colWidths.manager + colWidths.name + colWidths.fycc + colWidths.case;
+  }, [colWidths]);
+
   return (
     <div className="flex flex-col min-h-screen bg-[#F8FAFC] font-sans pb-20">
       {/* Header */}
@@ -660,7 +688,8 @@ export default function App() {
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
-              className="space-y-6 max-w-[480px] mx-auto"
+              className="space-y-6 mx-auto transition-all duration-300"
+              style={{ maxWidth: `${totalTableWidth + 24}px`, width: '100%' }}
             >
               <div className="flex justify-between items-center bg-white border border-slate-200 px-6 py-4 rounded-3xl shadow-sm">
                 <button
@@ -739,14 +768,63 @@ export default function App() {
                     </div>
                   </div>
 
-                  {/* Help Tip Banner */}
-                  <div className="bg-sky-50 px-5 py-3.5 flex items-center gap-2 border-b border-sky-100 text-sm text-sky-700 font-medium rounded-t-2xl">
-                    <span className="flex-shrink-0 text-base">💡</span>
-                    <span>字體已放大 2 倍。您可以<b>按住並左右拖曳</b>表頭的分隔線來自助調整各欄寬度。</span>
+                  {/* Help Tip & Control Panel */}
+                  <div className="bg-slate-50 p-5 border-b border-slate-200">
+                    <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-4">
+                      <div className="flex items-center gap-2 text-sm text-slate-700 font-medium">
+                        <span className="text-base">💡</span>
+                        <span>
+                          <b>自助排版面板</b>：您可以<b>按住表頭邊緣拖曳</b>（左右調寬、上下調高），或使用滑桿設定：
+                        </span>
+                      </div>
+                      
+                      {/* Sliders Container */}
+                      <div className="flex flex-wrap items-center gap-5 text-xs font-semibold text-slate-600 bg-white px-4 py-2.5 rounded-xl shadow-sm border border-slate-100">
+                        {/* Font Size Slider */}
+                        <div className="flex items-center gap-1.5">
+                          <span>🔤 字體大小:</span>
+                          <input 
+                            type="range" 
+                            min="14" 
+                            max="40" 
+                            value={fontSize} 
+                            onChange={(e) => setFontSize(parseInt(e.target.value))}
+                            className="w-20 accent-[#419CD8] cursor-pointer"
+                          />
+                          <span className="text-slate-400 font-mono w-7">{fontSize}px</span>
+                        </div>
+
+                        {/* Row Height Slider */}
+                        <div className="flex items-center gap-1.5">
+                          <span>↕️ 行高(間距):</span>
+                          <input 
+                            type="range" 
+                            min="4" 
+                            max="40" 
+                            value={rowPadding} 
+                            onChange={(e) => setRowPadding(parseInt(e.target.value))}
+                            className="w-20 accent-[#419CD8] cursor-pointer"
+                          />
+                          <span className="text-slate-400 font-mono w-7">{rowPadding}px</span>
+                        </div>
+
+                        {/* Reset Button */}
+                        <button 
+                          onClick={() => {
+                            setColWidths({ manager: 240, name: 290, fycc: 190, case: 140 });
+                            setRowPadding(16);
+                            setFontSize(24);
+                          }}
+                          className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-2.5 py-1 rounded text-[10px] font-bold transition-all active:scale-95"
+                        >
+                          重設樣式
+                        </button>
+                      </div>
+                    </div>
                   </div>
 
                   {/* Table area */}
-                  <div className="bg-white overflow-x-auto w-full">
+                  <div className="bg-white overflow-x-auto w-full no-scrollbar">
                     <table 
                       className="text-left border-collapse table-fixed select-none"
                       style={{ width: colWidths.manager + colWidths.name + colWidths.fycc + colWidths.case }}
@@ -759,55 +837,97 @@ export default function App() {
                       </colgroup>
                       <thead>
                         <tr className="bg-[#60A5FA] text-white">
-                          <th className="relative px-3 py-4 border-r border-[#419CD8] text-[24px] font-black select-none group">
+                          <th 
+                            className="relative px-3 border-r border-[#419CD8] font-black select-none group"
+                            style={{ paddingTop: `${rowPadding}px`, paddingBottom: `${rowPadding}px`, fontSize: `${fontSize}px` }}
+                          >
                             <div className="truncate pr-3">Manager</div>
                             <div 
                               onMouseDown={(e) => handleResizeStart('manager', e)}
                               className="absolute right-0 top-0 bottom-0 w-2.5 cursor-col-resize hover:bg-[#419CD8]/60 active:bg-blue-600 z-10 transition-colors"
                               title="左右拖動調整寬度"
                             />
+                            <div 
+                              onMouseDown={handleRowHeightResizeStart}
+                              className="absolute left-0 right-0 bottom-0 h-2 cursor-row-resize hover:bg-[#419CD8]/60 active:bg-blue-600 z-20 transition-colors"
+                              title="上下拖動調整行高"
+                            />
                           </th>
-                          <th className="relative px-3 py-4 border-r border-[#419CD8] text-[24px] font-black select-none group">
+                          <th 
+                            className="relative px-3 border-r border-[#419CD8] font-black select-none group"
+                            style={{ paddingTop: `${rowPadding}px`, paddingBottom: `${rowPadding}px`, fontSize: `${fontSize}px` }}
+                          >
                             <div className="truncate pr-3">Name (HKID)</div>
                             <div 
                               onMouseDown={(e) => handleResizeStart('name', e)}
                               className="absolute right-0 top-0 bottom-0 w-2.5 cursor-col-resize hover:bg-[#419CD8]/60 active:bg-blue-600 z-10 transition-colors"
                               title="左右拖動調整寬度"
                             />
+                            <div 
+                              onMouseDown={handleRowHeightResizeStart}
+                              className="absolute left-0 right-0 bottom-0 h-2 cursor-row-resize hover:bg-[#419CD8]/60 active:bg-blue-600 z-20 transition-colors"
+                              title="上下拖動調整行高"
+                            />
                           </th>
-                          <th className="relative px-3 py-4 border-r border-[#419CD8] text-center text-[24px] font-black select-none group">
+                          <th 
+                            className="relative px-3 border-r border-[#419CD8] text-center font-black select-none group"
+                            style={{ paddingTop: `${rowPadding}px`, paddingBottom: `${rowPadding}px`, fontSize: `${fontSize}px` }}
+                          >
                             <div className="truncate px-1">FYCC</div>
                             <div 
                               onMouseDown={(e) => handleResizeStart('fycc', e)}
                               className="absolute right-0 top-0 bottom-0 w-2.5 cursor-col-resize hover:bg-[#419CD8]/60 active:bg-blue-600 z-10 transition-colors"
                               title="左右拖動調整寬度"
                             />
+                            <div 
+                              onMouseDown={handleRowHeightResizeStart}
+                              className="absolute left-0 right-0 bottom-0 h-2 cursor-row-resize hover:bg-[#419CD8]/60 active:bg-blue-600 z-20 transition-colors"
+                              title="上下拖動調整行高"
+                            />
                           </th>
-                          <th className="relative px-3 py-4 text-center text-[24px] font-black select-none group">
+                          <th 
+                            className="relative px-3 font-black select-none group text-center"
+                            style={{ paddingTop: `${rowPadding}px`, paddingBottom: `${rowPadding}px`, fontSize: `${fontSize}px` }}
+                          >
                             <div className="truncate px-1">Case</div>
                             <div 
                               onMouseDown={(e) => handleResizeStart('case', e)}
                               className="absolute right-0 top-0 bottom-0 w-2.5 cursor-col-resize hover:bg-[#419CD8]/60 active:bg-blue-600 z-10 transition-colors"
                               title="左右拖動調整寬度"
                             />
+                            <div 
+                              onMouseDown={handleRowHeightResizeStart}
+                              className="absolute left-0 right-0 bottom-0 h-2 cursor-row-resize hover:bg-[#419CD8]/60 active:bg-blue-600 z-20 transition-colors"
+                              title="上下拖動調整行高"
+                            />
                           </th>
                         </tr>
                       </thead>
-                      <tbody className="text-[24px] font-medium">
+                      <tbody className="font-medium" style={{ fontSize: `${fontSize}px` }}>
                         {reportData.map((distGroup) => (
                            <Fragment key={distGroup.district}>
                              {/* District Classification Row */}
-                             <tr className="bg-blue-50/70 text-blue-950 border-b border-blue-100 uppercase font-black text-[24px]">
-                               <td colSpan={2} className="px-3 py-4 border-r border-blue-100 truncate">
+                             <tr className="bg-blue-50/70 text-blue-950 border-b border-blue-100 uppercase font-black">
+                               <td 
+                                 colSpan={2} 
+                                 className="px-3 border-r border-blue-100 truncate"
+                                 style={{ paddingTop: `${rowPadding}px`, paddingBottom: `${rowPadding}px` }}
+                               >
                                  <div className="flex items-center gap-1.5">
                                    <span className="text-[#419CD8]">■</span>
                                    <span className="truncate">{distGroup.district}</span>
                                  </div>
                                </td>
-                               <td className="px-3 py-4 border-r border-blue-100 text-right font-black text-blue-900 truncate">
+                               <td 
+                                 className="px-3 border-r border-blue-100 text-right font-black text-blue-900 truncate"
+                                 style={{ paddingTop: `${rowPadding}px`, paddingBottom: `${rowPadding}px` }}
+                               >
                                  {distGroup.totalFYC.toLocaleString()}
                                </td>
-                               <td className="px-3 py-4 text-right font-black text-blue-900 truncate">
+                               <td 
+                                 className="px-3 text-right font-black text-blue-900 truncate"
+                                 style={{ paddingTop: `${rowPadding}px`, paddingBottom: `${rowPadding}px` }}
+                               >
                                  {distGroup.totalCases.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 })}
                                </td>
                              </tr>
@@ -816,17 +936,31 @@ export default function App() {
                              {distGroup.managerGroups.map((group) => (
                                <Fragment key={group.manager}>
                                  {group.records.map((record, idx) => (
-                                   <tr key={`${record.name}-${idx}`} className="border-b border-gray-100 hover:bg-sky-50 transition-colors uppercase whitespace-nowrap text-[24px]">
-                                     <td className="px-3 py-3 border-r border-gray-100 font-bold truncate" title={group.manager}>
+                                   <tr key={`${record.name}-${idx}`} className="border-b border-gray-100 hover:bg-sky-50 transition-colors uppercase whitespace-nowrap">
+                                     <td 
+                                       className="px-3 border-r border-gray-100 font-bold truncate" 
+                                       title={group.manager}
+                                       style={{ paddingTop: `${rowPadding * 0.8}px`, paddingBottom: `${rowPadding * 0.8}px` }}
+                                     >
                                        {idx === 0 ? `- ${group.manager}` : ""}
                                      </td>
-                                     <td className="px-3 py-3 border-r border-gray-100 truncate" title={record.name}>
+                                     <td 
+                                       className="px-3 border-r border-gray-100 truncate" 
+                                       title={record.name}
+                                       style={{ paddingTop: `${rowPadding * 0.8}px`, paddingBottom: `${rowPadding * 0.8}px` }}
+                                     >
                                        {record.name}
                                      </td>
-                                     <td className="px-3 py-3 border-r border-gray-100 text-right font-semibold truncate">
+                                     <td 
+                                       className="px-3 border-r border-gray-100 text-right font-semibold truncate"
+                                       style={{ paddingTop: `${rowPadding * 0.8}px`, paddingBottom: `${rowPadding * 0.8}px` }}
+                                     >
                                        {record.fyc.toLocaleString()}
                                      </td>
-                                     <td className="px-3 py-3 text-right truncate">
+                                     <td 
+                                       className="px-3 text-right truncate"
+                                       style={{ paddingTop: `${rowPadding * 0.8}px`, paddingBottom: `${rowPadding * 0.8}px` }}
+                                     >
                                        {record.cases.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 })}
                                      </td>
                                    </tr>
@@ -836,13 +970,25 @@ export default function App() {
                            </Fragment>
                          ))}
                        </tbody>
-                       <tfoot className="font-black text-[24px] bg-white border-t-2 border-gray-300">
+                       <tfoot className="font-black bg-white border-t-2 border-gray-300" style={{ fontSize: `${fontSize}px` }}>
                           <tr className="bg-slate-50">
-                            <td colSpan={2} className="px-3 py-4 border-r border-gray-100 text-right font-semibold text-slate-500">TOTAL</td>
-                            <td className="px-3 py-4 border-r border-gray-100 text-right underline decoration-double underline-offset-4 truncate text-blue-950">
+                            <td 
+                              colSpan={2} 
+                              className="px-3 border-r border-gray-100 text-right font-semibold text-slate-500"
+                              style={{ paddingTop: `${rowPadding}px`, paddingBottom: `${rowPadding}px` }}
+                            >
+                              TOTAL
+                            </td>
+                            <td 
+                              className="px-3 border-r border-gray-100 text-right underline decoration-double underline-offset-4 truncate text-blue-950"
+                              style={{ paddingTop: `${rowPadding}px`, paddingBottom: `${rowPadding}px` }}
+                            >
                               {grandTotals.fyc.toLocaleString()}
                             </td>
-                            <td className="px-3 py-4 text-right underline decoration-double underline-offset-4 truncate text-blue-950">
+                            <td 
+                              className="px-3 text-right underline decoration-double underline-offset-4 truncate text-blue-950"
+                              style={{ paddingTop: `${rowPadding}px`, paddingBottom: `${rowPadding}px` }}
+                            >
                               {grandTotals.cases.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 })}
                             </td>
                           </tr>
