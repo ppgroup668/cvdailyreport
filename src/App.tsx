@@ -5,6 +5,7 @@
 
 import React, { useState, useCallback, useMemo, Fragment, ChangeEvent, useEffect } from 'react';
 import * as XLSX from 'xlsx';
+import html2canvas from 'html2canvas';
 import { 
   FileUp, 
   FileSpreadsheet, 
@@ -23,7 +24,8 @@ import {
   Calendar,
   Eye,
   EyeOff,
-  Globe
+  Globe,
+  Camera
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from './lib/utils';
@@ -94,6 +96,7 @@ export default function App() {
   const [viewerSelectedDate, setViewerSelectedDate] = useState<string>('');
   const [isViewerLoading, setIsViewerLoading] = useState(false);
   const [isPublishing, setIsPublishing] = useState(false);
+  const [isCapturing, setIsCapturing] = useState(false);
   const [publishSuccessMessage, setPublishSuccessMessage] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
@@ -245,6 +248,43 @@ export default function App() {
       setError(err.message || '發佈報表時出錯。');
     } finally {
       setIsPublishing(false);
+    }
+  };
+
+  // Capture report as JPG image
+  const captureReportAsJpg = async () => {
+    const captureElement = document.getElementById('daily-report-capture-area');
+    if (!captureElement) {
+      setError('找不到報表擷取區域。');
+      return;
+    }
+
+    setIsCapturing(true);
+    try {
+      // Create screenshot using html2canvas
+      const canvas = await html2canvas(captureElement, {
+        useCORS: true,
+        allowTaint: true,
+        backgroundColor: '#ffffff', // Clean white background for JPEG
+        scale: 2, // 2x resolution scale for crystal clear font and details
+        logging: false,
+      });
+
+      // Convert canvas to high-quality JPEG
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.95);
+
+      // Programmatically trigger download
+      const link = document.createElement('a');
+      link.href = dataUrl;
+      link.download = `DAILY_REPORT_${reportDate.replace(/\//g, '-')}.jpg`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    } catch (err) {
+      console.error('Screenshot capture failed:', err);
+      setError('擷取報表截圖失敗，請重試。');
+    } finally {
+      setIsCapturing(false);
     }
   };
 
@@ -1251,204 +1291,47 @@ export default function App() {
                       ))}
                     </select>
                   </div>
-                  <div className="text-xs text-slate-400 font-medium italic">
-                    唯讀分享版 • 共 {viewerAvailableDates.length} 個歷史日期
+                  <div className="flex items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={captureReportAsJpg}
+                      disabled={isCapturing}
+                      className="px-4 py-2 bg-gradient-to-r from-[#419CD8] to-blue-500 hover:from-[#3587bd] hover:to-blue-600 text-white font-bold text-xs rounded-xl transition-all shadow-sm flex items-center gap-1.5 hover:scale-[1.02] cursor-pointer"
+                    >
+                      <Camera className="w-4 h-4 text-white" />
+                      {isCapturing ? "正在擷取..." : "快速截圖 (JPG)"}
+                    </button>
+                    <div className="text-xs text-slate-400 font-medium italic hidden sm:block">
+                      唯讀分享版 • 共 {viewerAvailableDates.length} 個歷史日期
+                    </div>
                   </div>
                 </div>
               ) : (
-                <div className="flex justify-between items-center bg-white border border-slate-200 px-6 py-4 rounded-3xl shadow-sm">
+                <div className="flex flex-col sm:flex-row justify-between items-center bg-white border border-slate-200 px-6 py-4 rounded-3xl shadow-sm gap-4">
                   <button
                     onClick={() => setActiveView('dashboard')}
                     className="px-5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-sm rounded-xl transition-all flex items-center gap-2 border border-slate-200 hover:scale-[1.02] cursor-pointer"
                   >
                     ← 返回上傳數據頁面
                   </button>
-                  <div className="text-xs text-slate-500 font-medium">
-                    可隨時點擊返回修改數據或重新上傳
+                  <div className="flex items-center gap-4">
+                    <button
+                      type="button"
+                      onClick={captureReportAsJpg}
+                      disabled={isCapturing}
+                      className="px-6 py-2.5 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white font-black text-sm rounded-xl transition-all shadow-md flex items-center gap-2 hover:scale-[1.02] cursor-pointer active:scale-95"
+                    >
+                      <Camera className="w-4.5 h-4.5 text-white" />
+                      {isCapturing ? "正在擷取..." : "快速截圖 (JPG)"}
+                    </button>
+                    <div className="text-xs text-slate-500 font-medium hidden md:block">
+                      可隨時點擊返回修改數據或重新上傳
+                    </div>
                   </div>
                 </div>
               )}
 
-              {/* Publish & Share Card (Only for admin) */}
-              {!isViewerMode && (
-                <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-sm space-y-6">
-                  <div>
-                    <h4 className="text-lg font-black text-slate-800 flex items-center gap-2">
-                      <Share2 className="w-5.5 h-5.5 text-[#419CD8]" />
-                      發佈與分享中心 (Publish & Share Center)
-                    </h4>
-                    <p className="text-xs text-slate-500 mt-1">
-                      選擇適合您部署環境的發佈方式。若使用 GitHub Pages 等純靜態網頁託管，請優先選擇<b>方法二</b>或<b>方法三</b>。
-                    </p>
-                  </div>
-
-                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-                    {/* Method 1: Cloud DB */}
-                    <div className="bg-slate-50/50 border border-slate-200/80 rounded-2xl p-5 flex flex-col justify-between space-y-4 hover:shadow-sm transition-shadow">
-                      <div className="space-y-2">
-                        <div className="flex items-center gap-2">
-                          <span className="flex items-center justify-center w-5 h-5 rounded-full bg-blue-100 text-[#419CD8] text-[10px] font-black">1</span>
-                          <h5 className="text-sm font-black text-slate-800">雲端伺服器發佈</h5>
-                        </div>
-                        <p className="text-xs text-slate-500 leading-relaxed">
-                          將報表同步上傳至後端伺服器資料庫。支援多日期歷史存檔，讀者點開連結後可下拉選單查看不同日期的歷史報告。
-                        </p>
-                        <div className="text-[10px] text-amber-600 bg-amber-50 px-2.5 py-1 rounded-md font-bold inline-block">
-                          ⚠️ 限制：靜態網頁（如 GitHub Pages）不支援此方式。
-                        </div>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={publishCurrentDashboard}
-                        disabled={isPublishing}
-                        className={cn(
-                          "w-full py-2.5 rounded-xl font-bold text-xs text-white shadow-sm transition-all active:scale-95 cursor-pointer flex items-center justify-center gap-2",
-                          isPublishing ? "bg-slate-400 cursor-not-allowed" : "bg-gradient-to-r from-[#419CD8] to-blue-500 hover:from-[#3587bd] hover:to-blue-600"
-                        )}
-                      >
-                        {isPublishing ? "正在發佈..." : shareId ? "🔄 更新雲端報表" : "🚀 發佈至雲端伺服器"}
-                      </button>
-                    </div>
-
-                    {/* Method 2: Static URL Encoding */}
-                    <div className="bg-[#419CD8]/5 border border-[#419CD8]/20 rounded-2xl p-5 flex flex-col justify-between space-y-4 hover:shadow-sm transition-shadow">
-                      <div className="space-y-2">
-                        <div className="flex items-center gap-2">
-                          <span className="flex items-center justify-center w-5 h-5 rounded-full bg-[#419CD8]/10 text-[#419CD8] text-[10px] font-black">2</span>
-                          <h5 className="text-sm font-black text-slate-800 flex items-center gap-1.5">
-                            網址數據封裝分享
-                            <span className="bg-[#419CD8] text-white text-[9px] font-black px-1.5 py-0.5 rounded-md scale-90">免伺服器</span>
-                          </h5>
-                        </div>
-                        <p className="text-xs text-slate-500 leading-relaxed">
-                          將目前所有的報表數據、Logo 圖片與排版設定經過安全壓縮，<b>直接封裝在分享網址中</b>。100% 離線可用，讀者點開即還原相同畫面。
-                        </p>
-                        <div className="text-[10px] text-emerald-600 bg-emerald-50 px-2.5 py-1 rounded-md font-bold inline-block">
-                          💡 最推薦：完全支援 GitHub Pages 靜態網站！
-                        </div>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={generateStaticShareLink}
-                        className="w-full py-2.5 rounded-xl font-bold text-xs bg-slate-800 hover:bg-slate-700 text-white shadow-sm transition-all active:scale-95 cursor-pointer flex items-center justify-center gap-2"
-                      >
-                        <Globe className="w-3.5 h-3.5" />
-                        🔗 產生靜態封裝分享網址
-                      </button>
-                    </div>
-
-                    {/* Method 3: Standalone Offline HTML */}
-                    <div className="bg-slate-50/50 border border-slate-200/80 rounded-2xl p-5 flex flex-col justify-between space-y-4 hover:shadow-sm transition-shadow">
-                      <div className="space-y-2">
-                        <div className="flex items-center gap-2">
-                          <span className="flex items-center justify-center w-5 h-5 rounded-full bg-slate-200 text-slate-600 text-[10px] font-black">3</span>
-                          <h5 className="text-sm font-black text-slate-800">下載離線互動 HTML</h5>
-                        </div>
-                        <p className="text-xs text-slate-500 leading-relaxed">
-                          將目前的精美報表打包編譯成<b>單一的 HTML 網頁檔案</b>。下載後任何人雙擊皆可在瀏覽器中開啟（離線、免網路，且能保持完美縮放）。
-                        </p>
-                        <div className="text-[10px] text-indigo-600 bg-indigo-50 px-2.5 py-1 rounded-md font-bold inline-block">
-                          💼 適合用作 Email 附件或本機留底存檔。
-                        </div>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={downloadStandaloneHtml}
-                        className="w-full py-2.5 rounded-xl font-bold text-xs bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-200 shadow-sm transition-all active:scale-95 cursor-pointer flex items-center justify-center gap-2"
-                      >
-                        <Download className="w-3.5 h-3.5" />
-                        💾 下載獨立 HTML 檔案
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Show Server DB Success URL */}
-                  {publishSuccessMessage && (
-                    <motion.div 
-                      initial={{ opacity: 0, y: -10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center gap-3 justify-between"
-                    >
-                      <div className="space-y-1">
-                        <span className="text-xs font-black text-emerald-800 flex items-center gap-1.5">
-                          <CheckCircle2 className="w-4 h-4 text-emerald-600 animate-bounce" />
-                          雲端報表發佈成功！此連結支援歷史日期選擇切換。
-                        </span>
-                        <div className="text-[11px] text-slate-500 font-mono select-all truncate max-w-lg md:max-w-xl">
-                          {publishSuccessMessage}
-                        </div>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => copyToClipboard(publishSuccessMessage)}
-                        className={cn(
-                          "px-4 py-2 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-1.5 cursor-pointer flex-shrink-0",
-                          copied ? "bg-emerald-600 text-white" : "bg-white border border-emerald-300 text-emerald-700 hover:bg-emerald-50"
-                        )}
-                      >
-                        {copied ? (
-                          <>
-                            <Check className="w-3.5 h-3.5" />
-                            已複製
-                          </>
-                        ) : (
-                          <>
-                            <Copy className="w-3.5 h-3.5" />
-                            複製連結
-                          </>
-                        )}
-                      </button>
-                    </motion.div>
-                  )}
-
-                  {/* Show Static URL Success URL */}
-                  {staticShareUrl && (
-                    <motion.div 
-                      initial={{ opacity: 0, y: -10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      className="bg-[#419CD8]/10 border border-[#419CD8]/30 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center gap-3 justify-between"
-                    >
-                      <div className="space-y-1">
-                        <span className="text-xs font-black text-[#419CD8] flex items-center gap-1.5">
-                          <CheckCircle2 className="w-4 h-4 text-[#419CD8]" />
-                          靜態封裝連結產生成功！已包裝所有數據、自訂樣式與 Logo！
-                        </span>
-                        <div className="text-[11px] text-slate-500 font-mono select-all truncate max-w-lg md:max-w-xl">
-                          {staticShareUrl}
-                        </div>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const success = copyToClipboard(staticShareUrl);
-                          if (success) {
-                            setCopiedStatic(true);
-                            setTimeout(() => setCopiedStatic(false), 2000);
-                          }
-                        }}
-                        className={cn(
-                          "px-4 py-2 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-1.5 cursor-pointer flex-shrink-0",
-                          copiedStatic ? "bg-[#419CD8] text-white" : "bg-white border border-[#419CD8]/30 text-[#419CD8] hover:bg-[#419CD8]/5"
-                        )}
-                      >
-                        {copiedStatic ? (
-                          <>
-                            <Check className="w-3.5 h-3.5" />
-                            已複製
-                          </>
-                        ) : (
-                          <>
-                            <Copy className="w-3.5 h-3.5" />
-                            複製靜態連結
-                          </>
-                        )}
-                      </button>
-                    </motion.div>
-                  )}
-                </div>
-              )}
-
-              <div className={cn(theme.outerBg, "p-1 shadow-2xl rounded-sm overflow-hidden")}>
+              <div id="daily-report-capture-area" className={cn(theme.outerBg, "p-1 shadow-2xl rounded-sm overflow-hidden")}>
                 <div className={cn(theme.outerBg, "relative border-[6px]", theme.outerBorder, "rounded-xl overflow-hidden")}>
                   {/* Header Section */}
                   <div className={cn("flex items-stretch h-32 border-b-2 border-black/10", theme.outerBg)}>
